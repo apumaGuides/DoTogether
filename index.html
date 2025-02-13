@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Enhanced Shared Calendar</title>
+  <title>Enhanced Shared Calendar (Real Time with Firestore)</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -12,6 +12,7 @@
       <button id="prev-day">Previous Day</button>
       <button id="next-day">Next Day</button>
       <button id="rename-calendars">Rename Calendars</button>
+      <button id="change-background">Change Background</button>
     </div>
   </header>
 
@@ -34,7 +35,7 @@
     <label for="end-time">End Time (HH:MM):</label>
     <input type="text" id="end-time" placeholder="10:00" />
 
-    <!-- Dropdown for pre-selectable images -->
+    <!-- Dropdown for pre-selectable event background images -->
     <label for="event-image">Event Background:</label>
     <select id="event-image">
       <option value="">None</option>
@@ -68,6 +69,7 @@
   <!-- Thin red line for current time -->
   <div id="current-time-line"></div>
 
-  <script src="script.js"></script>
+  <!-- Load our script as a module -->
+  <script type="module" src="script.js"></script>
 </body>
 </html>
