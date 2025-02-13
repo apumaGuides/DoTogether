@@ -1,0 +1,207 @@
+/* ===============================
+   Basic Reset & Layout
+   =============================== */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: Arial, sans-serif;
+  padding: 20px;
+}
+
+/* ===============================
+   Header
+   =============================== */
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+#current-date {
+  font-size: 1.3rem;
+}
+
+#event-input {
+  margin-bottom: 20px;
+}
+
+#event-input label {
+  margin-right: 6px;
+}
+
+#event-input input,
+#event-input select {
+  margin-right: 12px;
+  margin-bottom: 8px;
+}
+
+/* ===============================
+   Main Container
+   =============================== */
+.calendar-container {
+  display: flex;
+  gap: 20px;
+  position: relative; /* for the current-time-line absolute positioning */
+}
+
+/* ===============================
+   Timeline (Hours)
+   =============================== */
+.timeline {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  border-right: 1px solid #ccc;
+  padding-right: 10px;
+  min-width: 50px;
+}
+
+.time-label {
+  height: 40px; /* each hour = 40px tall */
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 5px;
+  font-weight: bold;
+  color: #555;
+}
+
+/* ===============================
+   Individual Calendars
+   =============================== */
+.calendar {
+  flex: 1;
+  border: 1px solid #ccc;
+  padding: 10px;
+  position: relative;
+  min-width: 200px;
+}
+
+.calendar h2 {
+  text-align: center;
+  margin-bottom: 10px;
+}
+
+/* ===============================
+   Time Slots (horizontal lines)
+   48 half-hour slots at 20px each (total 960px)
+   =============================== */
+.time-slots {
+  position: relative;
+  height: 960px;
+  border-bottom: 1px solid #ccc;
+}
+
+.time-slot-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background-color: #eee;
+}
+
+/* ===============================
+   Events Container
+   =============================== */
+.events-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 960px;
+}
+
+/* ===============================
+   Event Blocks
+   Absolutely positioned using ratio = 960/1440 = 0.6667px per minute.
+   =============================== */
+.event {
+  position: absolute;
+  left: 5%;    
+  right: 5%;  
+  padding: 8px;
+  margin: 0 auto;
+  border-radius: 4px;
+  font-size: 16px;
+  font-weight: bold;
+  color: #000;
+  cursor: grab;
+  box-sizing: border-box;
+  border: 2px solid #007bff;
+  outline: none;
+  /* Fallback background if no image is applied */
+  background: linear-gradient(rgba(179,217,255,0.8), rgba(179,217,255,0.8));
+}
+
+/* Friend's event style */
+.friend-event {
+  border-color: #ff9900;
+  background: linear-gradient(rgba(255,217,179,0.8), rgba(255,217,179,0.8));
+}
+
+/* NEW: Pre-selectable image classes using local images from the project folder */
+.image1 {
+  background: linear-gradient(rgba(179,217,255,0.8), rgba(179,217,255,0.8)),
+              url('images/image1.png');
+  background-size: cover;
+  background-position: center;
+}
+
+.image2 {
+  background: linear-gradient(rgba(255,217,179,0.8), rgba(255,217,179,0.8)),
+              url('images/image2.png');
+  background-size: cover;
+  background-position: center;
+}
+
+/* "Current event" highlight */
+.current-event {
+  outline: 4px dashed red;
+  outline-offset: -2px;
+}
+
+/* Checkbox inside the event */
+.event input[type="checkbox"] {
+  margin-right: 8px;
+  transform: scale(1.2);
+}
+
+/* ===============================
+   Current Time Red Line
+   =============================== */
+#current-time-line {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background-color: red;
+  pointer-events: none;
+  z-index: 999;
+}
+
+/* ===============================
+   Responsive
+   =============================== */
+@media (max-width: 768px) {
+  .calendar-container {
+    flex-direction: column;
+  }
+  .timeline {
+    border-right: none;
+    flex-direction: row;
+    flex-wrap: wrap;
+    padding-right: 0;
+  }
+  .time-label {
+    width: 40px;
+    height: auto;
+  }
+  .calendar {
+    min-width: auto;
+  }
+}

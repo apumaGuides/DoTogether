@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Enhanced Shared Calendar</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <h1 id="current-date"></h1>
+    <div>
+      <button id="prev-day">Previous Day</button>
+      <button id="next-day">Next Day</button>
+      <button id="rename-calendars">Rename Calendars</button>
+    </div>
+  </header>
+
+  <!-- Section for adding new events manually -->
+  <section id="event-input">
+    <h2>Add New Event</h2>
+    
+    <label for="event-description">Event Description:</label>
+    <input type="text" id="event-description" placeholder="e.g., Team Meeting" />
+
+    <label for="event-user">User:</label>
+    <select id="event-user">
+      <option value="my">Me</option>
+      <option value="friend">My Friend</option>
+    </select>
+
+    <label for="start-time">Start Time (HH:MM):</label>
+    <input type="text" id="start-time" placeholder="08:00" />
+
+    <label for="end-time">End Time (HH:MM):</label>
+    <input type="text" id="end-time" placeholder="10:00" />
+
+    <!-- Dropdown for pre-selectable images -->
+    <label for="event-image">Event Background:</label>
+    <select id="event-image">
+      <option value="">None</option>
+      <option value="image1">Image 1</option>
+      <option value="image2">Image 2</option>
+    </select>
+
+    <button id="save-event">Save Event</button>
+  </section>
+
+  <!-- Main container: timeline + two calendars -->
+  <div class="calendar-container">
+    <!-- Timeline (hour markers) on the left -->
+    <div class="timeline" id="timeline"></div>
+
+    <!-- My schedule -->
+    <section id="my-calendar" class="calendar">
+      <h2 id="my-calendar-title">My Schedule</h2>
+      <div class="time-slots" id="my-time-slots"></div>
+      <div class="events-container" id="my-events-container"></div>
+    </section>
+
+    <!-- Friend's schedule -->
+    <section id="friend-calendar" class="calendar">
+      <h2 id="friend-calendar-title">Friend's Schedule</h2>
+      <div class="time-slots" id="friend-time-slots"></div>
+      <div class="events-container" id="friend-events-container"></div>
+    </section>
+  </div>
+
+  <!-- Thin red line for current time -->
+  <div id="current-time-line"></div>
+
+  <script src="script.js"></script>
+</body>
+</html>
