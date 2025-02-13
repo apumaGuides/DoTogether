@@ -1,36 +1,50 @@
+// Import Firebase modules from Cloud Firestore SDK
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.3.1/firebase-app.js";
+import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.3.1/firebase-firestore.js";
+
 /******************************************************
  * script.js
  *
- * Key Changes vs. Previous Version:
- *  1) Each calendar has a fixed height of 960px (48 half-hour slots * 20px).
- *  2) We display hour lines more compactly (each hour = 40px tall).
- *  3) A single continuous event block is absolutely positioned from
- *     start -> end, rather than duplicated in each 30-min slot.
- *  4) Clicking empty space => prompt to add a new event.
- *  5) Red line uses new scale: 960px / 1440min = 0.6667 px per minute.
- *  6) Thicker "current event" outline, bigger event area, background image.
- *  7) "My Schedule" and "Friend's Schedule" are renameable.
- *  8) New: Pre-selectable event images with blended backgrounds.
+ * This version uses Cloud Firestore for real-time sync.
+ * All other UI/UX features remain the same.
  ******************************************************/
 
+// Firebase configuration (replace with your actual config)
+const firebaseConfig = {
+  apiKey: "AIzaSyAAlLefCz9sUr_buvkg4UysrB571WFtZMI",
+  authDomain: "todogether-eea6b.firebaseapp.com",
+  projectId: "todogether-eea6b",
+  storageBucket: "todogether-eea6b.firebasestorage.app",
+  messagingSenderId: "37718791621",
+  appId: "1:37718791621:web:2d5614de0fedd5077227ac",
+  measurementId: "G-HTMX5ZJJM4"
+};
+
+// Initialize Firebase and Firestore
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+// Global variables for events and selected event (for deletion via Delete key)
 let myEvents = [];
 let friendEvents = [];
+let currentSelectedEvent = null;
 
-// On load
+// On load, initialize UI and Firestore listeners
 window.addEventListener('DOMContentLoaded', () => {
   displayCurrentDate();
   setupButtons();
   generateTimeline();
   generateTimeSlotLines('my-time-slots');
   generateTimeSlotLines('friend-time-slots');
-  loadEventsFromStorage();
-  renderEvents();
+  setupRealtimeListeners();
+  addEventContainerDropHandlers();
   startCurrentTimeLineUpdater();
   addEmptySpaceClickHandlers();
+  document.addEventListener('keydown', handleDeleteKey);
 });
 
 /**
- * Display today's date in a nice format
+ * Display today's date.
  */
 function displayCurrentDate() {
   const currentDateEl = document.getElementById('current-date');
@@ -40,7 +54,7 @@ function displayCurrentDate() {
 }
 
 /**
- * Setup top buttons (Prev/Next Day, Rename Calendars, etc.)
+ * Setup top buttons.
  */
 function setupButtons() {
   document.getElementById('prev-day').addEventListener('click', () => {
@@ -50,11 +64,12 @@ function setupButtons() {
     console.log("Next Day clicked");
   });
   document.getElementById('rename-calendars').addEventListener('click', renameCalendars);
+  document.getElementById('change-background').addEventListener('click', changeBackground);
   document.getElementById('save-event').addEventListener('click', addNewEvent);
 }
 
 /**
- * Let user rename the calendar titles
+ * Rename calendar titles.
  */
 function renameCalendars() {
   const myTitle = prompt("Enter new title for your calendar:", "My Schedule");
@@ -68,8 +83,27 @@ function renameCalendars() {
 }
 
 /**
- * Generate hour labels from 0:00 -> 23:00 in 24h format.
- * Each label is 40px tall => total 960px for 24 hours.
+ * Change the page background.
+ */
+function changeBackground() {
+  const choice = prompt("Select background:\n1) Background 1\n2) Background 2");
+  let bgUrl = "";
+  if (choice === "1") {
+    bgUrl = "BackgroundImages/imageB1.png";
+  } else if (choice === "2") {
+    bgUrl = "BackgroundImages/imageB2.png";
+  } else {
+    return;
+  }
+  document.body.style.backgroundImage = `url('${bgUrl}')`;
+  document.body.style.backgroundSize = "cover";
+  document.body.style.backgroundPosition = "center";
+  document.body.style.backgroundRepeat = "no-repeat";
+  document.body.style.opacity = "0.95";
+}
+
+/**
+ * Generate hour labels (0:00 to 23:00).
  */
 function generateTimeline() {
   const timelineEl = document.getElementById('timeline');
@@ -82,8 +116,7 @@ function generateTimeline() {
 }
 
 /**
- * Draw the horizontal lines for half-hour segments.
- * 48 half-hours => each line at top: i * 20px
+ * Draw horizontal lines for half-hour segments.
  */
 function generateTimeSlotLines(containerId) {
   const container = document.getElementById(containerId);
@@ -96,35 +129,39 @@ function generateTimeSlotLines(containerId) {
 }
 
 /**
- * Load from localStorage or use sample data
+ * Set up real-time listener for events from Firestore.
+ * We use a single document "events" in collection "calendar" to store our events.
  */
-function loadEventsFromStorage() {
-  const storedMyEvents = localStorage.getItem('myEvents');
-  const storedFriendEvents = localStorage.getItem('friendEvents');
-  if (storedMyEvents && storedFriendEvents) {
-    myEvents = JSON.parse(storedMyEvents);
-    friendEvents = JSON.parse(storedFriendEvents);
-  } else {
-    // Sample data
-    myEvents = [
-      { startTime: "08:00", endTime: "10:00", description: "Morning Meeting", done: false, image: "" },
-      { startTime: "14:00", endTime: "16:00", description: "Project Work", done: false, image: "" }
-    ];
-    friendEvents = [
-      { startTime: "09:30", endTime: "10:30", description: "Doctor Appointment", done: false, image: "" },
-      { startTime: "10:30", endTime: "12:00", description: "Gym Session", done: false, image: "" },
-      { startTime: "15:00", endTime: "16:00", description: "Coffee with Friends", done: false, image: "" }
-    ];
-  }
+function setupRealtimeListeners() {
+  const eventsDocRef = doc(db, "calendar", "events");
+  onSnapshot(eventsDocRef, (docSnapshot) => {
+    if (docSnapshot.exists()) {
+      const data = docSnapshot.data();
+      myEvents = data.myEvents || [];
+      friendEvents = data.friendEvents || [];
+    } else {
+      // If no document exists, initialize with sample data
+      myEvents = [
+        { startTime: "08:00", endTime: "10:00", description: "Morning Meeting", done: false, image: "" },
+        { startTime: "14:00", endTime: "16:00", description: "Project Work", done: false, image: "" }
+      ];
+      friendEvents = [
+        { startTime: "09:30", endTime: "10:30", description: "Doctor Appointment", done: false, image: "" },
+        { startTime: "10:30", endTime: "12:00", description: "Gym Session", done: false, image: "" },
+        { startTime: "15:00", endTime: "16:00", description: "Coffee with Friends", done: false, image: "" }
+      ];
+      updateFirebase();
+    }
+    renderEvents();
+  });
 }
 
 /**
- * Render both sets of events in their respective containers.
+ * Render events in their respective containers.
  */
 function renderEvents() {
   clearCalendar('my-events-container');
   clearCalendar('friend-events-container');
-
   myEvents.forEach((event, index) => {
     renderEvent(event, 'my-events-container', index, false);
   });
@@ -134,7 +171,7 @@ function renderEvents() {
 }
 
 /**
- * Clear all events from a container
+ * Clear events from a container.
  */
 function clearCalendar(containerId) {
   const container = document.getElementById(containerId);
@@ -142,8 +179,7 @@ function clearCalendar(containerId) {
 }
 
 /**
- * Render a single event as an absolutely positioned block from start -> end.
- * Positioning: top = (start in minutes) * (960/1440) and height = (duration in minutes) * (960/1440).
+ * Render a single event as an absolutely positioned block.
  */
 function renderEvent(event, containerId, index, isFriend) {
   const container = document.getElementById(containerId);
@@ -155,80 +191,106 @@ function renderEvent(event, containerId, index, isFriend) {
   eventEl.classList.add('event');
   if (isFriend) eventEl.classList.add('friend-event');
 
-  // NEW: Apply the image class if selected
+  // Apply image class if selected
   if (event.image) {
     eventEl.classList.add(event.image);
   }
 
-  // Highlight current event
+  // Highlight current event if applicable
   const now = getMinutesSinceMidnight();
   if (now >= startMin && now < endMin) {
     eventEl.classList.add('current-event');
   }
 
-  // Draggable properties
+  // Make event draggable
   eventEl.draggable = true;
   eventEl.dataset.index = index;
   eventEl.dataset.user = isFriend ? "friend" : "my";
   eventEl.dataset.duration = duration;
   eventEl.addEventListener('dragstart', onDragStart);
 
-  // Positioning
+  // Positioning (ratio = 960/1440 = 0.6667px per minute)
   const ratio = 960 / 1440;
-  const topPx = startMin * ratio;
-  const heightPx = duration * ratio;
-  eventEl.style.top = topPx + 'px';
-  eventEl.style.height = heightPx + 'px';
+  eventEl.style.top = (startMin * ratio) + 'px';
+  eventEl.style.height = (duration * ratio) + 'px';
 
-  // Checkbox for marking done
+  // Checkbox for marking completion
   const checkbox = document.createElement("input");
   checkbox.type = "checkbox";
   checkbox.checked = event.done;
   checkbox.addEventListener("change", () => {
     event.done = checkbox.checked;
-    saveEventsToStorage();
+    updateFirebase();
   });
 
   // Description text
   const descSpan = document.createElement("span");
   descSpan.textContent = event.description;
 
-  // On click: rename or delete
+  eventEl.appendChild(checkbox);
+  eventEl.appendChild(descSpan);
+
+  // Display comment if present
+  if (event.comment) {
+    const commentEl = document.createElement("div");
+    commentEl.classList.add("comment");
+    commentEl.textContent = event.comment;
+    eventEl.appendChild(commentEl);
+  }
+
+  // On click, select event and prompt for actions (rename or add comment)
   eventEl.addEventListener("click", () => {
     handleEventClick(event, eventEl);
   });
 
-  // Append checkbox and text, then add event element to container
-  eventEl.appendChild(checkbox);
-  eventEl.appendChild(descSpan);
   container.appendChild(eventEl);
 }
 
 /**
- * Handle event click: rename or delete
+ * Handle event click: select event and prompt for rename or comment.
  */
 function handleEventClick(eventObj, eventEl) {
+  clearSelectedEvent();
+  eventEl.classList.add('selected');
+  currentSelectedEvent = { eventObj: eventObj, index: eventEl.dataset.index, user: eventEl.dataset.user };
   const action = prompt(
-    `Event: "${eventObj.description}"\n` +
-    `Choose an action:\n` +
-    `1) Delete\n` +
-    `2) Rename\n` +
-    `(Cancel = do nothing)`
+    `Event: "${eventObj.description}"\nChoose an action:\n1) Rename\n2) Add Comment\n(Then press Delete key to remove)`
   );
   if (action === "1") {
-    deleteEvent(eventEl.dataset.user, parseInt(eventEl.dataset.index));
-  } else if (action === "2") {
     const newName = prompt("Enter new description:", eventObj.description);
     if (newName !== null && newName.trim() !== "") {
       eventObj.description = newName;
-      saveEventsToStorage();
-      renderEvents();
+      updateFirebase();
+    }
+  } else if (action === "2") {
+    const comment = prompt("Enter comment:", eventObj.comment || "");
+    if (comment !== null) {
+      eventObj.comment = comment;
+      updateFirebase();
     }
   }
 }
 
 /**
- * Delete an event from the respective array
+ * Clear any selected event.
+ */
+function clearSelectedEvent() {
+  document.querySelectorAll('.event.selected').forEach(el => el.classList.remove('selected'));
+  currentSelectedEvent = null;
+}
+
+/**
+ * Handle Delete key press to delete selected event.
+ */
+function handleDeleteKey(e) {
+  if (e.key === "Delete" && currentSelectedEvent) {
+    deleteEvent(currentSelectedEvent.user, parseInt(currentSelectedEvent.index));
+    currentSelectedEvent = null;
+  }
+}
+
+/**
+ * Delete an event.
  */
 function deleteEvent(user, index) {
   if (user === "my") {
@@ -236,12 +298,11 @@ function deleteEvent(user, index) {
   } else {
     friendEvents.splice(index, 1);
   }
-  saveEventsToStorage();
-  renderEvents();
+  updateFirebase();
 }
 
 /**
- * Add new event from the form
+ * Add new event from the form.
  */
 function addNewEvent() {
   const description = document.getElementById("event-description").value;
@@ -260,7 +321,7 @@ function addNewEvent() {
     endTime: endTime,
     description: description,
     done: false,
-    image: image  // store the selected image key
+    image: image
   };
 
   if (user === "my") {
@@ -268,9 +329,7 @@ function addNewEvent() {
   } else {
     friendEvents.push(newEvent);
   }
-
-  saveEventsToStorage();
-  renderEvents();
+  updateFirebase();
 
   // Clear form fields
   document.getElementById("event-description").value = "";
@@ -280,15 +339,18 @@ function addNewEvent() {
 }
 
 /**
- * Save to localStorage
+ * Update events in Firestore.
+ * We store our events in a single document "events" inside the "calendar" collection.
  */
-function saveEventsToStorage() {
-  localStorage.setItem('myEvents', JSON.stringify(myEvents));
-  localStorage.setItem('friendEvents', JSON.stringify(friendEvents));
+async function updateFirebase() {
+  await setDoc(doc(db, "calendar", "events"), {
+    myEvents: myEvents,
+    friendEvents: friendEvents
+  });
 }
 
 /**
- * Convert "HH:MM" to minutes since midnight
+ * Convert "HH:MM" to minutes since midnight.
  */
 function parseTime(str) {
   const [h, m] = str.split(":").map(Number);
@@ -296,7 +358,7 @@ function parseTime(str) {
 }
 
 /**
- * Return current time in minutes since midnight
+ * Return current time in minutes since midnight.
  */
 function getMinutesSinceMidnight() {
   const now = new Date();
@@ -306,6 +368,10 @@ function getMinutesSinceMidnight() {
 /* =========================================
    DRAG & DROP LOGIC
    ========================================= */
+
+/**
+ * When dragging starts, store event data.
+ */
 function onDragStart(e) {
   const index = e.target.dataset.index;
   const user = e.target.dataset.user;
@@ -314,7 +380,60 @@ function onDragStart(e) {
 }
 
 /**
- * Detect clicks on empty space to add new event
+ * Allow drop by preventing default.
+ */
+function onDragOver(e) {
+  e.preventDefault();
+}
+
+/**
+ * When an event is dropped, calculate its new start time.
+ */
+function onDrop(e) {
+  e.preventDefault();
+  const container = e.currentTarget;
+  const rect = container.getBoundingClientRect();
+  const dropY = e.clientY - rect.top;
+  const ratio = 960 / 1440;
+  let newStartMin = Math.round(dropY / ratio);
+  const data = JSON.parse(e.dataTransfer.getData("text/plain"));
+  const duration = parseInt(data.duration, 10);
+  const newStartStr = toHHMM(newStartMin);
+  const newEndStr = toHHMM(newStartMin + duration);
+
+  if (data.user === "my") {
+    myEvents[data.index].startTime = newStartStr;
+    myEvents[data.index].endTime = newEndStr;
+  } else {
+    friendEvents[data.index].startTime = newStartStr;
+    friendEvents[data.index].endTime = newEndStr;
+  }
+  updateFirebase();
+}
+
+/**
+ * Helper: Convert minutes since midnight to "HH:MM" string.
+ */
+function toHHMM(totalMinutes) {
+  if (totalMinutes < 0) totalMinutes = 0;
+  if (totalMinutes > 1439) totalMinutes = 1439;
+  const hh = Math.floor(totalMinutes / 60);
+  const mm = totalMinutes % 60;
+  return String(hh).padStart(2, '0') + ":" + String(mm).padStart(2, '0');
+}
+
+/**
+ * Add drop handlers to event containers.
+ */
+function addEventContainerDropHandlers() {
+  document.querySelectorAll('.events-container').forEach(container => {
+    container.addEventListener('dragover', onDragOver);
+    container.addEventListener('drop', onDrop);
+  });
+}
+
+/**
+ * Detect clicks on empty space to prompt new event creation.
  */
 function addEmptySpaceClickHandlers() {
   const mySlots = document.getElementById('my-time-slots');
@@ -323,7 +442,6 @@ function addEmptySpaceClickHandlers() {
       createEventPrompt("my");
     }
   });
-
   const friendSlots = document.getElementById('friend-time-slots');
   friendSlots.addEventListener('click', (e) => {
     if (e.target === friendSlots) {
@@ -333,15 +451,13 @@ function addEmptySpaceClickHandlers() {
 }
 
 /**
- * Prompt user to add an event on empty space click
+ * Prompt the user to add a new event.
  */
 function createEventPrompt(user) {
   const description = prompt("Enter event description:");
   if (!description) return;
-
   const startTime = prompt("Start time (HH:MM):", "09:00");
   if (!startTime) return;
-
   const endTime = prompt("End time (HH:MM):", "10:00");
   if (!endTime) return;
 
@@ -358,8 +474,7 @@ function createEventPrompt(user) {
   } else {
     friendEvents.push(newEvent);
   }
-  saveEventsToStorage();
-  renderEvents();
+  updateFirebase();
 }
 
 /* =========================================
