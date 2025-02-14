@@ -1,15 +1,15 @@
-// Import Firebase modules from Cloud Firestore SDK
+// Import Firestore modules from the modular SDK
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.3.1/firebase-app.js";
 import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.3.1/firebase-firestore.js";
 
 /******************************************************
  * script.js
  *
- * This version uses Cloud Firestore for real-time sync.
- * All other UI/UX features remain the same.
+ * This version uses Cloud Firestore for real-time sync
+ * and supports up to 5 dynamic schedule boxes.
  ******************************************************/
 
-// Firebase configuration (replace with your actual config)
+// Firebase configuration – REPLACE with your actual config
 const firebaseConfig = {
   apiKey: "AIzaSyAAlLefCz9sUr_buvkg4UysrB571WFtZMI",
   authDomain: "todogether-eea6b.firebaseapp.com",
@@ -24,28 +24,30 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-// Global variables for events and selected event (for deletion via Delete key)
-let myEvents = [];
-let friendEvents = [];
+// Global variable: schedules array. Each schedule: { calendarTitle, events: [ ... ] }
+let schedules = [];
+// Selected event for deletion/resizing
 let currentSelectedEvent = null;
 
-// On load, initialize UI and Firestore listeners
+// Constants
+const MAX_SCHEDULES = 5;
+const DAY_HEIGHT = 960; // px for 24 hours
+const RATIO = DAY_HEIGHT / 1440; // 0.6667 px per minute
+
+// On load
 window.addEventListener('DOMContentLoaded', () => {
   displayCurrentDate();
   setupButtons();
   generateTimeline();
-  generateTimeSlotLines('my-time-slots');
-  generateTimeSlotLines('friend-time-slots');
   setupRealtimeListeners();
-  addEventContainerDropHandlers();
   startCurrentTimeLineUpdater();
   addEmptySpaceClickHandlers();
   document.addEventListener('keydown', handleDeleteKey);
 });
 
-/**
- * Display today's date.
- */
+// ----------------------
+// UI INITIALIZATION
+// ----------------------
 function displayCurrentDate() {
   const currentDateEl = document.getElementById('current-date');
   const today = new Date();
@@ -53,9 +55,6 @@ function displayCurrentDate() {
   currentDateEl.textContent = today.toLocaleDateString(undefined, options);
 }
 
-/**
- * Setup top buttons.
- */
 function setupButtons() {
   document.getElementById('prev-day').addEventListener('click', () => {
     console.log("Previous Day clicked");
@@ -65,200 +64,187 @@ function setupButtons() {
   });
   document.getElementById('rename-calendars').addEventListener('click', renameCalendars);
   document.getElementById('change-background').addEventListener('click', changeBackground);
+  document.getElementById('add-schedule').addEventListener('click', addNewSchedule);
   document.getElementById('save-event').addEventListener('click', addNewEvent);
 }
 
-/**
- * Rename calendar titles.
- */
-function renameCalendars() {
-  const myTitle = prompt("Enter new title for your calendar:", "My Schedule");
-  if (myTitle !== null) {
-    document.getElementById('my-calendar-title').textContent = myTitle;
-  }
-  const friendTitle = prompt("Enter new title for your friend's calendar:", "Friend's Schedule");
-  if (friendTitle !== null) {
-    document.getElementById('friend-calendar-title').textContent = friendTitle;
-  }
+// Populate the event schedule dropdown with an "All" option and each schedule title
+function updateEventScheduleOptions() {
+  const select = document.getElementById('event-schedule');
+  select.innerHTML = "";
+  const allOpt = document.createElement('option');
+  allOpt.value = "all";
+  allOpt.textContent = "All";
+  select.appendChild(allOpt);
+  schedules.forEach((sch, index) => {
+    const opt = document.createElement('option');
+    opt.value = index;
+    opt.textContent = sch.calendarTitle;
+    select.appendChild(opt);
+  });
 }
 
-/**
- * Change the page background.
- */
-function changeBackground() {
-  const choice = prompt("Select background:\n1) Background 1\n2) Background 2");
-  let bgUrl = "";
-  if (choice === "1") {
-    bgUrl = "BackgroundImages/imageB1.png";
-  } else if (choice === "2") {
-    bgUrl = "BackgroundImages/imageB2.png";
-  } else {
-    return;
-  }
-  document.body.style.backgroundImage = `url('${bgUrl}')`;
-  document.body.style.backgroundSize = "cover";
-  document.body.style.backgroundPosition = "center";
-  document.body.style.backgroundRepeat = "no-repeat";
-  document.body.style.opacity = "0.95";
-}
-
-/**
- * Generate hour labels (0:00 to 23:00).
- */
-function generateTimeline() {
-  const timelineEl = document.getElementById('timeline');
-  for (let hour = 0; hour < 24; hour++) {
-    const label = document.createElement('div');
-    label.classList.add('time-label');
-    label.textContent = `${String(hour).padStart(2, '0')}:00`;
-    timelineEl.appendChild(label);
-  }
-}
-
-/**
- * Draw horizontal lines for half-hour segments.
- */
-function generateTimeSlotLines(containerId) {
-  const container = document.getElementById(containerId);
-  for (let i = 0; i < 48; i++) {
-    const line = document.createElement('div');
-    line.classList.add('time-slot-line');
-    line.style.top = (i * 20) + 'px';
-    container.appendChild(line);
-  }
-}
-
-/**
- * Set up real-time listener for events from Firestore.
- * We use a single document "events" in collection "calendar" to store our events.
- */
+// ----------------------
+// REALTIME FIRESTORE SYNC
+// ----------------------
 function setupRealtimeListeners() {
   const eventsDocRef = doc(db, "calendar", "events");
   onSnapshot(eventsDocRef, (docSnapshot) => {
     if (docSnapshot.exists()) {
       const data = docSnapshot.data();
-      myEvents = data.myEvents || [];
-      friendEvents = data.friendEvents || [];
+      schedules = data.schedules || [];
     } else {
-      // If no document exists, initialize with sample data
-      myEvents = [
-        { startTime: "08:00", endTime: "10:00", description: "Morning Meeting", done: false, image: "" },
-        { startTime: "14:00", endTime: "16:00", description: "Project Work", done: false, image: "" }
-      ];
-      friendEvents = [
-        { startTime: "09:30", endTime: "10:30", description: "Doctor Appointment", done: false, image: "" },
-        { startTime: "10:30", endTime: "12:00", description: "Gym Session", done: false, image: "" },
-        { startTime: "15:00", endTime: "16:00", description: "Coffee with Friends", done: false, image: "" }
+      // Initialize with two default schedules if none exist
+      schedules = [
+        { calendarTitle: "My Schedule", events: [] },
+        { calendarTitle: "Friend's Schedule", events: [] }
       ];
       updateFirebase();
     }
-    renderEvents();
+    renderSchedules();
+    updateEventScheduleOptions();
   });
 }
 
-/**
- * Render events in their respective containers.
- */
-function renderEvents() {
-  clearCalendar('my-events-container');
-  clearCalendar('friend-events-container');
-  myEvents.forEach((event, index) => {
-    renderEvent(event, 'my-events-container', index, false);
-  });
-  friendEvents.forEach((event, index) => {
-    renderEvent(event, 'friend-events-container', index, true);
-  });
+async function updateFirebase() {
+  await setDoc(doc(db, "calendar", "events"), { schedules: schedules });
 }
 
-/**
- * Clear events from a container.
- */
-function clearCalendar(containerId) {
-  const container = document.getElementById(containerId);
+// ----------------------
+// RENDERING SCHEDULES & EVENTS
+// ----------------------
+function renderSchedules() {
+  const container = document.getElementById('schedules-container');
   container.innerHTML = "";
+  schedules.forEach((sch, index) => {
+    const cal = document.createElement('div');
+    cal.classList.add('calendar');
+    cal.dataset.scheduleIndex = index;
+    
+    const title = document.createElement('h2');
+    title.textContent = sch.calendarTitle;
+    cal.appendChild(title);
+    
+    // Create time-slots and events-container (both same height)
+    const slots = document.createElement('div');
+    slots.classList.add('time-slots');
+    slots.id = `time-slots-${index}`;
+    // Draw half-hour lines
+    for (let i = 0; i < 48; i++) {
+      const line = document.createElement('div');
+      line.classList.add('time-slot-line');
+      line.style.top = (i * 20) + 'px';
+      slots.appendChild(line);
+    }
+    cal.appendChild(slots);
+    
+    const eventsCont = document.createElement('div');
+    eventsCont.classList.add('events-container');
+    eventsCont.id = `events-container-${index}`;
+    eventsCont.dataset.scheduleIndex = index;
+    // Enable click-to-add event on empty space
+    eventsCont.addEventListener('click', (e) => {
+      if (e.target === eventsCont) {
+        createEventPrompt(index);
+      }
+    });
+    // Add drop handlers
+    eventsCont.addEventListener('dragover', onDragOver);
+    eventsCont.addEventListener('drop', onDrop);
+    
+    cal.appendChild(eventsCont);
+    container.appendChild(cal);
+    
+    // Render events for this schedule
+    renderEventsForSchedule(index);
+  });
 }
 
-/**
- * Render a single event as an absolutely positioned block.
- */
-function renderEvent(event, containerId, index, isFriend) {
-  const container = document.getElementById(containerId);
-  const startMin = parseTime(event.startTime);
-  const endMin = parseTime(event.endTime);
-  const duration = endMin - startMin;
-
-  const eventEl = document.createElement('div');
-  eventEl.classList.add('event');
-  if (isFriend) eventEl.classList.add('friend-event');
-
-  // Apply image class if selected
-  if (event.image) {
-    eventEl.classList.add(event.image);
-  }
-
-  // Highlight current event if applicable
-  const now = getMinutesSinceMidnight();
-  if (now >= startMin && now < endMin) {
-    eventEl.classList.add('current-event');
-  }
-
-  // Make event draggable
-  eventEl.draggable = true;
-  eventEl.dataset.index = index;
-  eventEl.dataset.user = isFriend ? "friend" : "my";
-  eventEl.dataset.duration = duration;
-  eventEl.addEventListener('dragstart', onDragStart);
-
-  // Positioning (ratio = 960/1440 = 0.6667px per minute)
-  const ratio = 960 / 1440;
-  eventEl.style.top = (startMin * ratio) + 'px';
-  eventEl.style.height = (duration * ratio) + 'px';
-
-  // Checkbox for marking completion
-  const checkbox = document.createElement("input");
-  checkbox.type = "checkbox";
-  checkbox.checked = event.done;
-  checkbox.addEventListener("change", () => {
-    event.done = checkbox.checked;
-    updateFirebase();
+// Render events for a single schedule box
+function renderEventsForSchedule(scheduleIndex) {
+  const container = document.getElementById(`events-container-${scheduleIndex}`);
+  container.innerHTML = "";
+  const events = schedules[scheduleIndex].events;
+  events.forEach((event, index) => {
+    const eventEl = document.createElement('div');
+    eventEl.classList.add('event');
+    // For demonstration, if scheduleIndex is odd, add friend-event style
+    if (scheduleIndex % 2 === 1) eventEl.classList.add('friend-event');
+    if (event.image) eventEl.classList.add(event.image);
+    
+    const startMin = parseTime(event.startTime);
+    const endMin = parseTime(event.endTime);
+    const duration = endMin - startMin;
+    eventEl.style.top = (startMin * RATIO) + 'px';
+    eventEl.style.height = (duration * RATIO) + 'px';
+    
+    // Draggable
+    eventEl.draggable = true;
+    eventEl.dataset.index = index;
+    eventEl.dataset.scheduleIndex = scheduleIndex;
+    eventEl.dataset.duration = duration;
+    eventEl.addEventListener('dragstart', onDragStart);
+    
+    // Current event highlight
+    const now = getMinutesSinceMidnight();
+    if (now >= startMin && now < endMin) {
+      eventEl.classList.add('current-event');
+    }
+    
+    // Checkbox
+    const checkbox = document.createElement('input');
+    checkbox.type = "checkbox";
+    checkbox.checked = event.done;
+    checkbox.addEventListener("change", () => {
+      event.done = checkbox.checked;
+      updateFirebase();
+    });
+    eventEl.appendChild(checkbox);
+    
+    // Description
+    const descSpan = document.createElement('span');
+    descSpan.textContent = event.description;
+    eventEl.appendChild(descSpan);
+    
+    // If comment exists, show it
+    if (event.comment) {
+      const commentEl = document.createElement('div');
+      commentEl.classList.add('comment');
+      commentEl.textContent = event.comment;
+      eventEl.appendChild(commentEl);
+    }
+    
+    // Append resizer for resizing events
+    const resizer = document.createElement('div');
+    resizer.classList.add('resizer');
+    resizer.addEventListener('mousedown', initResize);
+    eventEl.appendChild(resizer);
+    
+    // On click, select event and prompt for rename/comment
+    eventEl.addEventListener("click", (e) => {
+      // Prevent click from triggering on resizer
+      if (e.target.classList.contains('resizer')) return;
+      handleEventClick(event, eventEl, scheduleIndex);
+      e.stopPropagation();
+    });
+    
+    container.appendChild(eventEl);
   });
-
-  // Description text
-  const descSpan = document.createElement("span");
-  descSpan.textContent = event.description;
-
-  eventEl.appendChild(checkbox);
-  eventEl.appendChild(descSpan);
-
-  // Display comment if present
-  if (event.comment) {
-    const commentEl = document.createElement("div");
-    commentEl.classList.add("comment");
-    commentEl.textContent = event.comment;
-    eventEl.appendChild(commentEl);
-  }
-
-  // On click, select event and prompt for actions (rename or add comment)
-  eventEl.addEventListener("click", () => {
-    handleEventClick(event, eventEl);
-  });
-
-  container.appendChild(eventEl);
 }
 
-/**
- * Handle event click: select event and prompt for rename or comment.
- */
-function handleEventClick(eventObj, eventEl) {
+// ----------------------
+// EVENT ACTIONS
+// ----------------------
+function handleEventClick(eventObj, eventEl, scheduleIndex) {
   clearSelectedEvent();
   eventEl.classList.add('selected');
-  currentSelectedEvent = { eventObj: eventObj, index: eventEl.dataset.index, user: eventEl.dataset.user };
+  currentSelectedEvent = { eventObj, eventIndex: eventEl.dataset.index, scheduleIndex, user: "all" };
   const action = prompt(
-    `Event: "${eventObj.description}"\nChoose an action:\n1) Rename\n2) Add Comment\n(Then press Delete key to remove)`
+    `Event: "${eventObj.description}"\nChoose an action:\n1) Rename\n2) Add Comment\n(Then press "D" to delete)`
   );
   if (action === "1") {
     const newName = prompt("Enter new description:", eventObj.description);
-    if (newName !== null && newName.trim() !== "") {
+    if (newName && newName.trim() !== "") {
       eventObj.description = newName;
       updateFirebase();
     }
@@ -271,66 +257,52 @@ function handleEventClick(eventObj, eventEl) {
   }
 }
 
-/**
- * Clear any selected event.
- */
 function clearSelectedEvent() {
   document.querySelectorAll('.event.selected').forEach(el => el.classList.remove('selected'));
   currentSelectedEvent = null;
 }
 
-/**
- * Handle Delete key press to delete selected event.
- */
 function handleDeleteKey(e) {
-  if (e.key === "Delete" && currentSelectedEvent) {
-    deleteEvent(currentSelectedEvent.user, parseInt(currentSelectedEvent.index));
+  if (e.key.toLowerCase() === "d" && currentSelectedEvent) {
+    const { scheduleIndex, eventIndex } = currentSelectedEvent;
+    schedules[scheduleIndex].events.splice(eventIndex, 1);
+    updateFirebase();
     currentSelectedEvent = null;
   }
 }
 
-/**
- * Delete an event.
- */
-function deleteEvent(user, index) {
-  if (user === "my") {
-    myEvents.splice(index, 1);
-  } else {
-    friendEvents.splice(index, 1);
-  }
-  updateFirebase();
-}
-
-/**
- * Add new event from the form.
- */
+// ----------------------
+// ADD/CREATE EVENTS & SCHEDULES
+// ----------------------
 function addNewEvent() {
   const description = document.getElementById("event-description").value;
-  const user = document.getElementById("event-user").value;
   const startTime = document.getElementById("start-time").value;
   const endTime = document.getElementById("end-time").value;
-  const image = document.getElementById("event-image").value;  // new field
-
+  const image = document.getElementById("event-image").value;
+  const target = document.getElementById("event-schedule").value; // "all" or specific index
+  
   if (!description || !startTime || !endTime) {
     alert("Please fill in all fields.");
     return;
   }
-
+  
   const newEvent = {
-    startTime: startTime,
-    endTime: endTime,
-    description: description,
+    startTime,
+    endTime,
+    description,
     done: false,
-    image: image
+    image,
+    comment: ""
   };
-
-  if (user === "my") {
-    myEvents.push(newEvent);
+  
+  if (target === "all") {
+    schedules.forEach(sch => sch.events.push(newEvent));
   } else {
-    friendEvents.push(newEvent);
+    const idx = parseInt(target);
+    schedules[idx].events.push(newEvent);
   }
   updateFirebase();
-
+  
   // Clear form fields
   document.getElementById("event-description").value = "";
   document.getElementById("start-time").value = "";
@@ -338,82 +310,72 @@ function addNewEvent() {
   document.getElementById("event-image").value = "";
 }
 
-/**
- * Update events in Firestore.
- * We store our events in a single document "events" inside the "calendar" collection.
- */
-async function updateFirebase() {
-  await setDoc(doc(db, "calendar", "events"), {
-    myEvents: myEvents,
-    friendEvents: friendEvents
-  });
+function createEventPrompt(scheduleIndex) {
+  const description = prompt("Enter event description:");
+  if (!description) return;
+  const startTime = prompt("Start time (HH:MM):", "09:00");
+  if (!startTime) return;
+  const endTime = prompt("End time (HH:MM):", "10:00");
+  if (!endTime) return;
+  
+  const newEvent = {
+    startTime,
+    endTime,
+    description,
+    done: false,
+    image: "",
+    comment: ""
+  };
+  
+  schedules[scheduleIndex].events.push(newEvent);
+  updateFirebase();
 }
 
-/**
- * Convert "HH:MM" to minutes since midnight.
- */
-function parseTime(str) {
-  const [h, m] = str.split(":").map(Number);
-  return h * 60 + m;
+function addNewSchedule() {
+  if (schedules.length >= MAX_SCHEDULES) {
+    alert("Maximum number of schedules reached.");
+    return;
+  }
+  const title = prompt("Enter schedule title:", "New Schedule");
+  const newSchedule = { calendarTitle: title || "New Schedule", events: [] };
+  schedules.push(newSchedule);
+  updateFirebase();
+  updateEventScheduleOptions();
 }
 
-/**
- * Return current time in minutes since midnight.
- */
-function getMinutesSinceMidnight() {
-  const now = new Date();
-  return now.getHours() * 60 + now.getMinutes();
-}
-
-/* =========================================
-   DRAG & DROP LOGIC
-   ========================================= */
-
-/**
- * When dragging starts, store event data.
- */
+// ----------------------
+// DRAG & DROP & RESIZING
+// ----------------------
 function onDragStart(e) {
-  const index = e.target.dataset.index;
-  const user = e.target.dataset.user;
-  const duration = e.target.dataset.duration;
-  e.dataTransfer.setData("text/plain", JSON.stringify({ index, user, duration }));
+  const data = {
+    eventIndex: e.target.dataset.index,
+    scheduleIndex: e.target.dataset.scheduleIndex,
+    duration: e.target.dataset.duration
+  };
+  e.dataTransfer.setData("text/plain", JSON.stringify(data));
 }
 
-/**
- * Allow drop by preventing default.
- */
 function onDragOver(e) {
   e.preventDefault();
 }
 
-/**
- * When an event is dropped, calculate its new start time.
- */
 function onDrop(e) {
   e.preventDefault();
   const container = e.currentTarget;
+  const scheduleIndex = container.dataset.scheduleIndex;
   const rect = container.getBoundingClientRect();
   const dropY = e.clientY - rect.top;
-  const ratio = 960 / 1440;
-  let newStartMin = Math.round(dropY / ratio);
+  let newStartMin = Math.round(dropY / RATIO);
   const data = JSON.parse(e.dataTransfer.getData("text/plain"));
   const duration = parseInt(data.duration, 10);
   const newStartStr = toHHMM(newStartMin);
   const newEndStr = toHHMM(newStartMin + duration);
-
-  if (data.user === "my") {
-    myEvents[data.index].startTime = newStartStr;
-    myEvents[data.index].endTime = newEndStr;
-  } else {
-    friendEvents[data.index].startTime = newStartStr;
-    friendEvents[data.index].endTime = newEndStr;
-  }
+  
+  schedules[scheduleIndex].events[data.eventIndex].startTime = newStartStr;
+  schedules[scheduleIndex].events[data.eventIndex].endTime = newEndStr;
   updateFirebase();
 }
 
-/**
- * Helper: Convert minutes since midnight to "HH:MM" string.
- */
 function toHHMM(totalMinutes) {
   if (totalMinutes < 0) totalMinutes = 0;
   if (totalMinutes > 1439) totalMinutes = 1439;
@@ -422,64 +384,68 @@ function toHHMM(totalMinutes) {
   return String(hh).padStart(2, '0') + ":" + String(mm).padStart(2, '0');
 }
 
-/**
- * Add drop handlers to event containers.
- */
-function addEventContainerDropHandlers() {
-  document.querySelectorAll('.events-container').forEach(container => {
-    container.addEventListener('dragover', onDragOver);
-    container.addEventListener('drop', onDrop);
-  });
-}
+// RESIZING: Add a resizer handle to each event
+let isResizing = false;
+let currentResizer = null;
+let startY = 0;
+let initialHeight = 0;
+let resizingData = null;
 
-/**
- * Detect clicks on empty space to prompt new event creation.
- */
-function addEmptySpaceClickHandlers() {
-  const mySlots = document.getElementById('my-time-slots');
-  mySlots.addEventListener('click', (e) => {
-    if (e.target === mySlots) {
-      createEventPrompt("my");
-    }
-  });
-  const friendSlots = document.getElementById('friend-time-slots');
-  friendSlots.addEventListener('click', (e) => {
-    if (e.target === friendSlots) {
-      createEventPrompt("friend");
-    }
-  });
-}
-
-/**
- * Prompt the user to add a new event.
- */
-function createEventPrompt(user) {
-  const description = prompt("Enter event description:");
-  if (!description) return;
-  const startTime = prompt("Start time (HH:MM):", "09:00");
-  if (!startTime) return;
-  const endTime = prompt("End time (HH:MM):", "10:00");
-  if (!endTime) return;
-
-  const newEvent = {
-    startTime,
-    endTime,
-    description,
-    done: false,
-    image: ""
+function initResize(e) {
+  e.stopPropagation();
+  isResizing = true;
+  currentResizer = e.target;
+  startY = e.clientY;
+  const eventEl = currentResizer.parentElement;
+  initialHeight = eventEl.offsetHeight;
+  resizingData = {
+    eventIndex: eventEl.dataset.index,
+    scheduleIndex: eventEl.dataset.scheduleIndex,
+    startMin: parseTime(getEventStartTime(eventEl))
   };
-
-  if (user === "my") {
-    myEvents.push(newEvent);
-  } else {
-    friendEvents.push(newEvent);
-  }
-  updateFirebase();
+  document.addEventListener('mousemove', resizeEvent);
+  document.addEventListener('mouseup', stopResize);
 }
 
-/* =========================================
-   CURRENT TIME RED LINE UPDATER
-   ========================================= */
+function resizeEvent(e) {
+  if (!isResizing) return;
+  const eventEl = currentResizer.parentElement;
+  let newHeight = initialHeight + (e.clientY - startY);
+  if (newHeight < 20) newHeight = 20; // minimum height
+  eventEl.style.height = newHeight + "px";
+}
+
+function stopResize(e) {
+  if (!isResizing) return;
+  const eventEl = currentResizer.parentElement;
+  const newHeight = eventEl.offsetHeight;
+  const newDuration = Math.round(newHeight / RATIO);
+  const newEndMin = resizingData.startMin + newDuration;
+  schedules[resizingData.scheduleIndex].events[resizingData.eventIndex].endTime = toHHMM(newEndMin);
+  updateFirebase();
+  isResizing = false;
+  currentResizer = null;
+  document.removeEventListener('mousemove', resizeEvent);
+  document.removeEventListener('mouseup', stopResize);
+}
+
+function getEventStartTime(eventEl) {
+  // Look up the event in the schedules array
+  const scheduleIndex = eventEl.dataset.scheduleIndex;
+  const eventIndex = eventEl.dataset.index;
+  return schedules[scheduleIndex].events[eventIndex].startTime;
+}
+
+// ----------------------
+// EMPTY SPACE (CLICK-TO-ADD)
+// ----------------------
+function addEmptySpaceClickHandlers() {
+  // Already attached on each schedule's events-container in renderSchedules()
+}
+
+// ----------------------
+// CURRENT TIME RED LINE
+// ----------------------
 function startCurrentTimeLineUpdater() {
   updateCurrentTimeLine();
   setInterval(updateCurrentTimeLine, 60 * 1000);
@@ -488,10 +454,68 @@ function startCurrentTimeLineUpdater() {
 function updateCurrentTimeLine() {
   const lineEl = document.getElementById('current-time-line');
   const nowMin = getMinutesSinceMidnight();
-  const ratio = 960 / 1440;
-  let topOffset = nowMin * ratio;
+  let topOffset = nowMin * RATIO;
   if (topOffset < 0) topOffset = 0;
-  if (topOffset > 960) topOffset = 960;
+  if (topOffset > DAY_HEIGHT) topOffset = DAY_HEIGHT;
   lineEl.style.top = topOffset + "px";
-  renderEvents();
+  // No need to re-render events on every update here
+}
+
+// Fix: Use local time properly (using getUTCHours & getTimezoneOffset)
+function getMinutesSinceMidnight() {
+  let now = new Date();
+  return now.getUTCHours() * 60 + now.getUTCMinutes() - now.getTimezoneOffset();
+}
+
+// ----------------------
+// UPDATE EVENT SCHEDULES UI
+// ----------------------
+function renderSchedulesEvents() {
+  schedules.forEach((sch, index) => {
+    renderEventsForSchedule(index);
+  });
+}
+
+// When any update occurs, re-render schedules (and update event schedule options)
+function renderSchedules() {
+  const container = document.getElementById('schedules-container');
+  container.innerHTML = "";
+  schedules.forEach((sch, index) => {
+    const cal = document.createElement('div');
+    cal.classList.add('calendar');
+    cal.dataset.scheduleIndex = index;
+    
+    const title = document.createElement('h2');
+    title.textContent = sch.calendarTitle;
+    cal.appendChild(title);
+    
+    const slots = document.createElement('div');
+    slots.classList.add('time-slots');
+    slots.id = `time-slots-${index}`;
+    for (let i = 0; i < 48; i++) {
+      const line = document.createElement('div');
+      line.classList.add('time-slot-line');
+      line.style.top = (i * 20) + 'px';
+      slots.appendChild(line);
+    }
+    cal.appendChild(slots);
+    
+    const eventsCont = document.createElement('div');
+    eventsCont.classList.add('events-container');
+    eventsCont.id = `events-container-${index}`;
+    eventsCont.dataset.scheduleIndex = index;
+    eventsCont.addEventListener('dragover', onDragOver);
+    eventsCont.addEventListener('drop', onDrop);
+    // Click-to-add event if clicked on empty space
+    eventsCont.addEventListener('click', (e) => {
+      if (e.target === eventsCont) {
+        createEventPrompt(index);
+      }
+    });
+    cal.appendChild(eventsCont);
+    
+    container.appendChild(cal);
+    renderEventsForSchedule(index);
+  });
+  updateEventScheduleOptions();
 }
