@@ -17,7 +17,7 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase and Firestore
-firebase.initializeApp(firebaseConfig); //Use this for non-modular version
+firebase.initializeApp(firebaseConfig); // Use this for non-modular version
 const db = firebase.firestore();
 
 // Global variable: schedules array. Each schedule: { calendarTitle, events: [ ... ] }
