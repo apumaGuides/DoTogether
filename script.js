@@ -17,7 +17,7 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase and Firestore
-firebase.initializeApp(firebaseConfig); // Use this for non-modular version
+firebase.initializeApp(firebaseConfig); //Use this for non-modular version
 const db = firebase.firestore();
 
 // Global variable: schedules array. Each schedule: { calendarTitle, events: [ ... ] }
@@ -30,20 +30,11 @@ const MAX_SCHEDULES = 5;
 const DAY_HEIGHT = 960; // px for 24 hours
 const RATIO = DAY_HEIGHT / 1440; // 0.6667 px per minute
 
-// On load
-window.addEventListener('DOMContentLoaded', () => {
-    displayCurrentDate();
-    setupButtons();
-    generateTimeline();
-    setupRealtimeListeners(); // Listen for changes in Firestore
-    startCurrentTimeLineUpdater();
-    addEmptySpaceClickHandlers();
-    document.addEventListener('keydown', handleDeleteKey);
-});
+// ----------------------
+// UI INITIALIZATION - Function declarations FIRST
+// ----------------------
 
-// ----------------------
-// UI INITIALIZATION
-// ----------------------
+//Function declaration, moving all function declarations to the beginning.
 function displayCurrentDate() {
     const currentDateEl = document.getElementById('current-date');
     const today = new Date();
@@ -63,7 +54,6 @@ function setupButtons() {
     document.getElementById('add-schedule').addEventListener('click', addNewSchedule);
     document.getElementById('save-event').addEventListener('click', addNewEvent);
 }
-
 // Populate the event schedule dropdown with an "All" option and each schedule title
 function updateEventScheduleOptions() {
     const select = document.getElementById('event-schedule');
@@ -79,7 +69,25 @@ function updateEventScheduleOptions() {
         select.appendChild(opt);
     });
 }
+function generateTimeline() {
+  const timelineEl = document.getElementById('timeline');
+  for (let hour = 0; hour < 24; hour++) {
+    const label = document.createElement('div');
+    label.classList.add('time-label');
+    label.textContent = `${String(hour).padStart(2, '0')}:00`;
+    timelineEl.appendChild(label);
+  }
+}
 
+function generateTimeSlotLines(containerId) {
+  const container = document.getElementById(containerId);
+  for (let i = 0; i < 48; i++) {
+    const line = document.createElement('div');
+    line.classList.add('time-slot-line');
+    line.style.top = (i * 20) + 'px';
+    container.appendChild(line);
+  }
+}
 // ----------------------
 // REALTIME FIRESTORE SYNC
 // ----------------------
@@ -626,3 +634,14 @@ function renameCalendars() {
     }
   updateFirebaseWithEntireSchedule()
 }
+
+// On load
+window.addEventListener('DOMContentLoaded', () => {
+  displayCurrentDate();
+  setupButtons();
+  generateTimeline(); // Call the function to display the timeline
+  setupRealtimeListeners(); // Listen for changes in Firestore
+  startCurrentTimeLineUpdater();
+  addEmptySpaceClickHandlers();
+  document.addEventListener('keydown', handleDeleteKey);
+});
