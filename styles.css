@@ -10,11 +10,12 @@
 body {
   font-family: Arial, sans-serif;
   padding: 20px;
+  /* Default background (can be changed via Change Background button) */
   background-color: #f5f5f5;
 }
 
 /* ===============================
-   Header & Buttons
+   Header
    =============================== */
 header {
   display: flex;
@@ -27,13 +28,6 @@ header {
   font-size: 1.3rem;
 }
 
-.header-buttons button {
-  margin-right: 8px;
-}
-
-/* ===============================
-   Event Input Form
-   =============================== */
 #event-input {
   margin-bottom: 20px;
 }
@@ -49,60 +43,62 @@ header {
 }
 
 /* ===============================
-   Main Container Layout
+   Main Container
    =============================== */
-.main-container {
+.calendar-container {
   display: flex;
+  gap: 20px;
+  position: relative;
 }
 
-/* Timeline (left column) */
+/* ===============================
+   Timeline (Hours)
+   =============================== */
 .timeline {
-  width: 60px;
-  background-color: rgba(255,255,255,0.8);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
   border-right: 1px solid #ccc;
-  padding-right: 5px;
+  padding-right: 10px;
+  min-width: 50px;
 }
 
 .time-label {
-  height: 40px;
-  line-height: 40px;
-  font-weight: bold;
-  color: #000;
-}
-
-/* Schedules Container: flex so schedules shrink as more are added */
-.schedules-container {
+  height: 40px; /* each hour is 40px tall */
   display: flex;
-  flex: 1;
-  gap: 5px;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 5px;
+  font-weight: bold;
+  color: #555;
 }
 
-/* Each Schedule Box */
+/* ===============================
+   Individual Calendars
+   =============================== */
 .calendar {
   flex: 1;
   border: 1px solid #ccc;
+  padding: 10px;
+  position: relative;
+  min-width: 200px;
   background-color: #fff;
   border-radius: 8px;
-  position: relative;
-  overflow: hidden;
 }
 
-/* Calendar header (title) inside schedule box */
 .calendar h2 {
   text-align: center;
-  margin: 5px 0;
-  font-size: 1.1rem;
+  margin-bottom: 10px;
 }
 
-/* Time Slots and Events – fixed height of 960px */
+/* ===============================
+   Time Slots (horizontal lines)
+   48 half-hour slots at 20px each (total 960px)
+   =============================== */
 .time-slots {
-  position: absolute;
-  top: 35px;
-  left: 0;
-  right: 0;
+  position: relative;
   height: 960px;
   border-bottom: 1px solid #ccc;
-  pointer-events: none;
 }
 
 .time-slot-line {
@@ -113,10 +109,12 @@ header {
   background-color: #eee;
 }
 
-/* Events Container */
+/* ===============================
+   Events Container
+   =============================== */
 .events-container {
   position: absolute;
-  top: 35px;
+  top: 0;
   left: 0;
   right: 0;
   height: 960px;
@@ -130,7 +128,8 @@ header {
   left: 5%;
   right: 5%;
   padding: 8px;
-  border-radius: 12px;
+  margin: 0 auto;
+  border-radius: 12px;  /* Rounded corners */
   font-size: 16px;
   font-weight: bold;
   color: #000;
@@ -141,47 +140,36 @@ header {
   transition: box-shadow 0.2s;
 }
 
-/* Friend schedule event style */
+/* Friend's event style */
 .friend-event {
   border-color: #ff9900;
   background: linear-gradient(rgba(255,217,179,0.8), rgba(255,217,179,0.8));
 }
 
-/* Pre-selectable image backgrounds (less blended so they pop) */
+/* Pre-selectable image classes using local images */
 .image1 {
-  background: linear-gradient(rgba(179,217,255,0.6), rgba(179,217,255,0.6)),
+  background: linear-gradient(rgba(179,217,255,0.4), rgba(179,217,255,0.4)),
               url('images/image1.png');
   background-size: cover;
   background-position: center;
 }
 
 .image2 {
-  background: linear-gradient(rgba(255,217,179,0.6), rgba(255,217,179,0.6)),
+  background: linear-gradient(rgba(255,217,179,0.4), rgba(255,217,179,0.4)),
               url('images/image2.png');
   background-size: cover;
   background-position: center;
 }
 
-/* Current event highlighted with a purple glow */
+/* Highlight current event with a purple glow */
 .current-event {
+  outline: none;
   box-shadow: 0 0 10px purple, 0 0 20px purple;
 }
 
-/* Selected event indicator */
+/* Indicator for selected event */
 .selected {
   border: 2px solid #ff0000;
-}
-
-/* Resizer handle for event resizing */
-.resizer {
-  position: absolute;
-  bottom: 0;
-  right: 0;
-  width: 12px;
-  height: 12px;
-  background-color: rgba(0,0,0,0.5);
-  cursor: se-resize;
-  border-radius: 50%;
 }
 
 /* Style for event comment */
@@ -193,7 +181,7 @@ header {
   color: #333;
 }
 
-/* Checkbox inside event */
+/* Checkbox inside the event */
 .event input[type="checkbox"] {
   margin-right: 8px;
   transform: scale(1.2);
@@ -204,8 +192,8 @@ header {
    =============================== */
 #current-time-line {
   position: absolute;
-  left: 60px; /* aligned with schedules container */
-  width: calc(100% - 60px);
+  left: 0;
+  width: 100%;
   height: 2px;
   background-color: red;
   pointer-events: none;
@@ -216,18 +204,20 @@ header {
    Responsive
    =============================== */
 @media (max-width: 768px) {
-  .main-container {
+  .calendar-container {
     flex-direction: column;
   }
   .timeline {
-    width: 100%;
-    display: flex;
+    border-right: none;
+    flex-direction: row;
     flex-wrap: wrap;
+    padding-right: 0;
   }
   .time-label {
-    width: 50px;
+    width: 40px;
+    height: auto;
   }
-  .schedules-container {
-    flex-direction: column;
+  .calendar {
+    min-width: auto;
   }
 }
