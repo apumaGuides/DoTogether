@@ -234,7 +234,7 @@ function renderEventsForSchedule(scheduleIndex) {
         eventEl.appendChild(resizer);
 
         eventEl.addEventListener("click", (e) => {
-            if (e.target.classList.contains('resizer')) return;
+           if (e.target.classList.contains('resizer')) return;
             handleEventClick(event, eventEl, scheduleIndex);
             e.stopPropagation();
         });
@@ -320,10 +320,10 @@ function addNewEvent() {
         }
     } else {
         scheduleIndex = parseInt(scheduleIndexStr, 10);
-        if (isNaN(scheduleIndex) || scheduleIndex < 0 || scheduleIndex >= schedules.length) {
+         if (isNaN(scheduleIndex) || scheduleIndex < 0 || scheduleIndex >= schedules.length) {
             alert("Invalid schedule selected.");
             return;
-        }
+         }
         addEventToFirestore(newEvent, scheduleIndex); // Pass the schedule index
 
     }
@@ -378,8 +378,9 @@ function addNewSchedule() {
 async function addEventToFirestore(eventData, scheduleIndex) {
     try {
         // Add scheduleIndex to the event data
-        const docRef = await db.collection("events").add({ ...eventData, scheduleIndex });
+        const docRef = await db.collection("events").add({ ...eventData, scheduleIndex }); // Add to Firestore
         console.log("Document written with ID: ", docRef.id);
+
     } catch (error) {
         console.error("Error adding document: ", error);
     }
@@ -415,8 +416,8 @@ async function deleteEventFromFirestore(eventId, scheduleIndex) {
 // Updates ENTIRE schedule data to Firestore
 async function updateFirebaseWithEntireSchedule() {
     try {
-        const schedulesDocRef = doc(db, "calendar", "events"); // Re-use a single document
-        await setDoc(schedulesDocRef, { schedules: schedules }); // Set ENTIRE schedules array
+        const schedulesDocRef = db.collection("calendar").doc("events"); // Re-use a single document
+        await schedulesDocRef.set({ schedules: schedules }); // Set ENTIRE schedules array
         console.log("Schedules successfully updated in Firestore!");
     } catch (error) {
         console.error("Error updating schedules in Firestore: ", error);
@@ -455,19 +456,18 @@ function onDrop(e) {
 
 
     // Find the event in the correct schedule and update it:
-    const eventIndex = schedules[scheduleIndex].events.findIndex(event => event.id === data.id);
+        const eventIndex = schedules[scheduleIndex].events.findIndex(event => event.id === data.id);
 
-    if(eventIndex !== -1){
-       schedules[scheduleIndex].events[eventIndex] = {
-          ...schedules[scheduleIndex].events[eventIndex],
-          startTime: newStartStr,
-          endTime: newEndStr
-       }
-       updateEventInFirestore(data.id, { startTime: newStartStr, endTime: newEndStr }, scheduleIndex);
-
-    } else{
-        console.error('Event to update not found');
-    }
+        if(eventIndex !== -1){
+          schedules[scheduleIndex].events[eventIndex] = {
+            ...schedules[scheduleIndex].events[eventIndex],
+             startTime: newStartStr,
+             endTime: newEndStr
+          }
+          updateEventInFirestore(data.id, { startTime: newStartStr, endTime: newEndStr }, scheduleIndex);
+        } else {
+            console.error('Event to update not found');
+        }
 }
 
 
@@ -509,7 +509,7 @@ function resizeEvent(e) {
 }
 
 function stopResize(e) {
-    if (!isResizing) return;
+  if (!isResizing) return;
 
     const eventEl = currentResizer.parentElement;
     const newHeight = eventEl.offsetHeight;
@@ -569,4 +569,60 @@ function addEmptySpaceClickHandlers() {
 
 // ----------------------
 // CURRENT TIME RED LINE
-// ----------------
+// ----------------------
+function startCurrentTimeLineUpdater() {
+    updateCurrentTimeLine(); // Initial call
+    setInterval(updateCurrentTimeLine, 60 * 1000); // Update every minute
+}
+
+function updateCurrentTimeLine() {
+    const lineEl = document.getElementById('current-time-line');
+    const nowMin = getMinutesSinceMidnight();
+    let topOffset = nowMin * RATIO;
+    if (topOffset < 0) topOffset = 0;
+    if (topOffset > DAY_HEIGHT) topOffset = DAY_HEIGHT;
+    lineEl.style.top = topOffset + "px";
+}
+
+
+//-----------------------
+// BACKGROUND CHANGE
+//-----------------------
+function changeBackground() {
+  const choice = prompt("Select background:\n1) Background 1\n2) Background 2");
+  let bgUrl = "";
+  if (choice === "1") {
+    bgUrl = "images/image1.png";  // Corrected relative path
+  } else if (choice === "2") {
+    bgUrl = "images/image2.png"; // Corrected relative path
+  } else {
+    return; // Do nothing if invalid choice
+  }
+
+  document.body.style.backgroundImage = `url('${bgUrl}')`;
+  document.body.style.backgroundSize = "cover";
+  document.body.style.backgroundPosition = "center";
+  document.body.style.backgroundRepeat = "no-repeat";
+}
+
+//-----------------------
+// RENAME FUNCTION
+//-----------------------
+
+function renameCalendars() {
+    const newNames = [];
+    for (let i = 0; i < schedules.length; i++) {
+        let newTitle = prompt(`Enter new title for schedule "${schedules[i].calendarTitle}":`, schedules[i].calendarTitle);
+        if (newTitle !== null) {
+          newNames.push(newTitle)
+        }
+    }
+    if(newNames.length){
+      for(let i = 0; i < schedules.length; i++){
+        if(newNames[i] !== null){
+          schedules[i].calendarTitle = newNames[i]
+        }
+      }
+    }
+  updateFirebaseWithEntireSchedule()
+}
