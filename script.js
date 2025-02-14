@@ -1,7 +1,3 @@
---- script.js ---
-import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
-import { getFirestore, collection, addDoc, getDocs, query, where, onSnapshot, doc, deleteDoc, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
-
 /******************************************************
  * script.js
  *
@@ -21,8 +17,8 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase and Firestore
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+firebase.initializeApp(firebaseConfig); //Use this for non-modular version
+const db = firebase.firestore();
 
 // Global variable: schedules array. Each schedule: { calendarTitle, events: [ ... ] }
 let schedules = [];
@@ -88,11 +84,10 @@ function updateEventScheduleOptions() {
 // REALTIME FIRESTORE SYNC
 // ----------------------
 
-async function setupRealtimeListeners() {
-    const q = query(collection(db, "events")); // Query the "events" collection
+function setupRealtimeListeners() {
+    const eventsDocRef = db.collection("events"); // Reference the 'events' collection
 
-    // Use onSnapshot to listen for changes in real-time.
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+    eventsDocRef.onSnapshot((querySnapshot) => {
         let newSchedules = [];
         querySnapshot.forEach((doc) => {
             const eventData = doc.data();
@@ -176,6 +171,10 @@ function renderSchedules() {
 
 function renderEventsForSchedule(scheduleIndex) {
     const container = document.getElementById(`events-container-${scheduleIndex}`);
+    if (!container) {
+        console.error(`Container not found for schedule index: ${scheduleIndex}`);
+        return;
+    }
     container.innerHTML = ""; // Clear existing events
 
     const events = schedules[scheduleIndex]?.events || []; // Handle potential undefined
@@ -235,7 +234,7 @@ function renderEventsForSchedule(scheduleIndex) {
         eventEl.appendChild(resizer);
 
         eventEl.addEventListener("click", (e) => {
-           if (e.target.classList.contains('resizer')) return;
+            if (e.target.classList.contains('resizer')) return;
             handleEventClick(event, eventEl, scheduleIndex);
             e.stopPropagation();
         });
@@ -253,15 +252,15 @@ function renderEventsForSchedule(scheduleIndex) {
 function handleEventClick(eventObj, eventEl, scheduleIndex) {
     clearSelectedEvent();
     eventEl.classList.add('selected');
-    currentSelectedEvent = { eventObj, eventIndex: eventEl.dataset.index, scheduleIndex, user: "all" };
+    currentSelectedEvent = { eventObj, eventIndex: eventEl.dataset.index, scheduleIndex, user: "all" }; //Store event
     const action = prompt(
         `Event: "${eventObj.description}"\nChoose an action:\n1) Rename\n2) Add Comment\n(Then press "D" to delete)`
     );
     if (action === "1") {
         const newName = prompt("Enter new description:", eventObj.description);
         if (newName && newName.trim() !== "") {
-          eventObj.description = newName;
-          updateEventInFirestore(eventObj.id, { description: newName }, scheduleIndex);
+            eventObj.description = newName;
+            updateEventInFirestore(eventObj.id, { description: newName }, scheduleIndex);
         }
     } else if (action === "2") {
         const comment = prompt("Enter comment:", eventObj.comment || "");
@@ -273,15 +272,15 @@ function handleEventClick(eventObj, eventEl, scheduleIndex) {
 }
 
 function clearSelectedEvent() {
-  document.querySelectorAll('.event.selected').forEach(el => el.classList.remove('selected'));
-  currentSelectedEvent = null;
+    document.querySelectorAll('.event.selected').forEach(el => el.classList.remove('selected'));
+    currentSelectedEvent = null;
 }
 
 function handleDeleteKey(e) {
     if (e.key.toLowerCase() === "d" && currentSelectedEvent) {
-      const { scheduleIndex, eventIndex } = currentSelectedEvent;
-      const eventId = schedules[scheduleIndex].events[eventIndex].id; // Get document ID
-      deleteEventFromFirestore(eventId, scheduleIndex); // Delete from Firestore
+        const { scheduleIndex, eventIndex } = currentSelectedEvent;
+        const eventId = schedules[scheduleIndex].events[eventIndex].id; // Get document ID
+        deleteEventFromFirestore(eventId, scheduleIndex); // Delete from Firestore
     }
 }
 
@@ -290,7 +289,7 @@ function handleDeleteKey(e) {
 // ADD/CREATE EVENTS & SCHEDULES
 // ----------------------
 
-async function addNewEvent() {
+function addNewEvent() {
     const description = document.getElementById("event-description").value;
     const startTime = document.getElementById("start-time").value;
     const endTime = document.getElementById("end-time").value;
@@ -309,76 +308,78 @@ async function addNewEvent() {
         done: false,
         image,
         comment: "",
-        timestamp: serverTimestamp() // Add a timestamp for sorting
+        timestamp: firebase.firestore.FieldValue.serverTimestamp() // Add a timestamp for sorting and consistency
     };
 
     let scheduleIndex;
 
-    if(scheduleIndexStr === 'all'){
-        for(let i = 0; i < schedules.length; i++) {
-            await addEventToFirestore(newEvent, i);
+    if (scheduleIndexStr === 'all') {
+        // Add to all schedules
+        for (let i = 0; i < schedules.length; i++) {
+            addEventToFirestore(newEvent, i); // Pass the schedule index
         }
     } else {
         scheduleIndex = parseInt(scheduleIndexStr, 10);
-         if (isNaN(scheduleIndex) || scheduleIndex < 0 || scheduleIndex >= schedules.length) {
+        if (isNaN(scheduleIndex) || scheduleIndex < 0 || scheduleIndex >= schedules.length) {
             alert("Invalid schedule selected.");
             return;
-         }
-        await addEventToFirestore(newEvent, scheduleIndex);
+        }
+        addEventToFirestore(newEvent, scheduleIndex); // Pass the schedule index
 
     }
-        // Clear form fields after successful addition
-        document.getElementById("event-description").value = "";
-        document.getElementById("start-time").value = "";
-        document.getElementById("end-time").value = "";
-        document.getElementById("event-image").value = ""; //clear image field
+    // Clear form fields after successful addition
+    document.getElementById("event-description").value = "";
+    document.getElementById("start-time").value = "";
+    document.getElementById("end-time").value = "";
+    document.getElementById("event-image").value = ""; //clear image field
 }
 
-async function createEventPrompt(scheduleIndex) {
-  const description = prompt("Enter event description:");
-  if (!description) return;
-  const startTime = prompt("Start time (HH:MM):", "09:00");
-  if (!startTime) return;
-  const endTime = prompt("End time (HH:MM):", "10:00");
-  if (!endTime) return;
+function createEventPrompt(scheduleIndex) {
+    const description = prompt("Enter event description:");
+    if (!description) return;
+    const startTime = prompt("Start time (HH:MM):", "09:00");
+    if (!startTime) return;
+    const endTime = prompt("End time (HH:MM):", "10:00");
+    if (!endTime) return;
 
-  const newEvent = {
-    startTime,
-    endTime,
-    description,
-    done: false,
-    image: "",
-    comment: "",
-    timestamp: serverTimestamp() // Add a timestamp
-  };
+    const newEvent = {
+        startTime,
+        endTime,
+        description,
+        done: false,
+        image: "",
+        comment: "",
+        timestamp: firebase.firestore.FieldValue.serverTimestamp() // Add a timestamp
+    };
 
-  await addEventToFirestore(newEvent, scheduleIndex);
+    addEventToFirestore(newEvent, scheduleIndex); // Use Firestore, passing scheduleIndex
 }
 
-async function addNewSchedule() {
+function addNewSchedule() {
     if (schedules.length >= MAX_SCHEDULES) {
         alert("Maximum number of schedules reached.");
         return;
     }
     let title = prompt("Enter schedule title:", "New Schedule");
     if (!title) {
-        title = "New Schedule"; // Default if cancelled
+        title = "New Schedule"; // Default title
     }
 
     const newSchedule = { calendarTitle: title, events: [] };
-    schedules.push(newSchedule); // Add to local array
-    updateFirebase(); // Update the ENTIRE schedules array
-    updateEventScheduleOptions(); // Update the dropdown
+    schedules.push(newSchedule);  // Add to the local array
+    updateFirebaseWithEntireSchedule(); // *Correctly* update the entire schedules array in Firestore
+    updateEventScheduleOptions(); // Update the dropdown in the UI
 }
 
 // ----------------------
 // FIRESTORE HELPER FUNCTIONS
 // ----------------------
+
 async function addEventToFirestore(eventData, scheduleIndex) {
     try {
-        const docRef = await addDoc(collection(db, "events"), { ...eventData, scheduleIndex }); // Add to Firestore
+        // Add scheduleIndex to the event data
+        const docRef = await db.collection("events").add({ ...eventData, scheduleIndex });
         console.log("Document written with ID: ", docRef.id);
-
     } catch (error) {
         console.error("Error adding document: ", error);
     }
@@ -386,8 +387,8 @@ async function addEventToFirestore(eventData, scheduleIndex) {
 
 async function updateEventInFirestore(eventId, updateData, scheduleIndex) {
     try {
-        const eventRef = doc(db, "events", eventId);
-        await updateDoc(eventRef, updateData);
+        const eventRef = db.collection("events").doc(eventId);
+        await eventRef.update(updateData);
         console.log("Document successfully updated!");
     } catch (error) {
         console.error("Error updating document: ", error);
@@ -396,14 +397,31 @@ async function updateEventInFirestore(eventId, updateData, scheduleIndex) {
 
 async function deleteEventFromFirestore(eventId, scheduleIndex) {
     try {
-      const eventRef = doc(db, "events", eventId);
-      await deleteDoc(eventRef);
+      const eventRef = db.collection("events").doc(eventId);
+      await eventRef.delete();
       console.log("Document successfully deleted!");
+
+        // Remove from local array after successful deletion. VERY IMPORTANT
+        const localEventIndex = schedules[scheduleIndex].events.findIndex(event => event.id === eventId);
+        if (localEventIndex > -1) {
+            schedules[scheduleIndex].events.splice(localEventIndex, 1);
+        }
+
     } catch (error) {
       console.error("Error deleting document: ", error);
     }
 }
 
+// Updates ENTIRE schedule data to Firestore
+async function updateFirebaseWithEntireSchedule() {
+    try {
+        const schedulesDocRef = doc(db, "calendar", "events"); // Re-use a single document
+        await setDoc(schedulesDocRef, { schedules: schedules }); // Set ENTIRE schedules array
+        console.log("Schedules successfully updated in Firestore!");
+    } catch (error) {
+        console.error("Error updating schedules in Firestore: ", error);
+    }
+}
 
 // ----------------------
 // DRAG & DROP & RESIZING
@@ -414,21 +432,21 @@ function onDragStart(e) {
     eventIndex: e.target.dataset.index,
     scheduleIndex: e.target.dataset.scheduleIndex,
     duration: e.target.dataset.duration,
-    id: e.target.dataset.id,
+    id: e.target.dataset.id, // Add the document ID to the drag data
   };
   e.dataTransfer.setData("text/plain", JSON.stringify(data));
 }
 
 function onDragOver(e) {
-  e.preventDefault();
+  e.preventDefault(); // Necessary to allow dropping
 }
 
 function onDrop(e) {
     e.preventDefault();
     const container = e.currentTarget;
-    const scheduleIndex = parseInt(container.dataset.scheduleIndex, 10); // Get scheduleIndex from container
+    const scheduleIndex = parseInt(container.dataset.scheduleIndex, 10); // Get scheduleIndex from *container*
     const rect = container.getBoundingClientRect();
-    const dropY = e.clientY - rect.top;  // Relative to container
+    const dropY = e.clientY - rect.top;  // Relative to container, not document!
     let newStartMin = Math.round(dropY / RATIO);
     const data = JSON.parse(e.dataTransfer.getData("text/plain"));
     const duration = parseInt(data.duration, 10);
@@ -437,31 +455,32 @@ function onDrop(e) {
 
 
     // Find the event in the correct schedule and update it:
-        const eventIndex = schedules[scheduleIndex].events.findIndex(event => event.id === data.id);
+    const eventIndex = schedules[scheduleIndex].events.findIndex(event => event.id === data.id);
 
-        if(eventIndex !== -1){
-          schedules[scheduleIndex].events[eventIndex] = {
-            ...schedules[scheduleIndex].events[eventIndex],
-             startTime: newStartStr,
-             endTime: newEndStr
-          }
-          updateEventInFirestore(data.id, { startTime: newStartStr, endTime: newEndStr }, scheduleIndex);
-        } else {
-            console.error('Event to update not found');
-        }
+    if(eventIndex !== -1){
+       schedules[scheduleIndex].events[eventIndex] = {
+          ...schedules[scheduleIndex].events[eventIndex],
+          startTime: newStartStr,
+          endTime: newEndStr
+       }
+       updateEventInFirestore(data.id, { startTime: newStartStr, endTime: newEndStr }, scheduleIndex);
+
+    } else{
+        console.error('Event to update not found');
+    }
 }
 
 
-// RESIZING
+// RESIZING: Add a resizer handle to each event
 
 let isResizing = false;
 let currentResizer = null;
 let startY = 0;
 let initialHeight = 0;
-let resizingData = null;
+let resizingData = null; // Store data during resizing
 
 function initResize(e) {
-    e.stopPropagation();  // VERY IMPORTANT
+    e.stopPropagation();  // VERY IMPORTANT: Prevent click event on event
     isResizing = true;
     currentResizer = e.target;
     startY = e.clientY;
@@ -470,11 +489,12 @@ function initResize(e) {
     initialHeight = eventEl.offsetHeight;
 
     resizingData = {
-        eventIndex: parseInt(eventEl.dataset.index, 10),
-        scheduleIndex: parseInt(eventEl.dataset.scheduleIndex, 10),
-        startMin: parseTime(schedules[parseInt(eventEl.dataset.scheduleIndex, 10)].events[parseInt(eventEl.dataset.index, 10)].startTime),
+        eventIndex: parseInt(eventEl.dataset.index, 10), // Parse to integer
+        scheduleIndex: parseInt(eventEl.dataset.scheduleIndex, 10), // Parse to integer
+        startMin: parseTime(schedules[parseInt(eventEl.dataset.scheduleIndex, 10)].events[parseInt(eventEl.dataset.index, 10)].startTime), // Get correct start time
         id: eventEl.dataset.id,
     };
+
     document.addEventListener('mousemove', resizeEvent);
     document.addEventListener('mouseup', stopResize);
 }
@@ -484,18 +504,19 @@ function resizeEvent(e) {
     if (!isResizing) return;
     const eventEl = currentResizer.parentElement;
     let newHeight = initialHeight + (e.clientY - startY);
-    if (newHeight < 20) newHeight = 20;
+    if (newHeight < 20) newHeight = 20; // Minimum height
     eventEl.style.height = newHeight + "px";
 }
 
 function stopResize(e) {
-  if (!isResizing) return;
+    if (!isResizing) return;
 
     const eventEl = currentResizer.parentElement;
     const newHeight = eventEl.offsetHeight;
     const newDuration = Math.round(newHeight / RATIO);
     const newEndMin = resizingData.startMin + newDuration;
     const newEndTime = toHHMM(newEndMin);
+
 
     //Update Firebase
     const eventIndex = schedules[resizingData.scheduleIndex].events.findIndex(event => event.id === resizingData.id);
@@ -506,14 +527,15 @@ function stopResize(e) {
           endTime: newEndTime,
        }
         updateEventInFirestore(resizingData.id, { endTime: newEndTime }, resizingData.scheduleIndex);
-    } else {
+    } else{
         console.error('Event not found');
     }
 
-  isResizing = false;
-  currentResizer = null;
-  document.removeEventListener('mousemove', resizeEvent);
-  document.removeEventListener('mouseup', stopResize);
+
+    isResizing = false;
+    currentResizer = null;
+    document.removeEventListener('mousemove', resizeEvent);
+    document.removeEventListener('mouseup', stopResize);
 }
 
 // ----------------------
@@ -521,7 +543,7 @@ function stopResize(e) {
 // ----------------------
 function toHHMM(totalMinutes) {
     if (totalMinutes < 0) totalMinutes = 0;
-    if (totalMinutes > 1439) totalMinutes = 1439;
+    if (totalMinutes > 1439) totalMinutes = 1439; // Max minutes in a day
     const hh = Math.floor(totalMinutes / 60);
     const mm = totalMinutes % 60;
     return String(hh).padStart(2, '0') + ":" + String(mm).padStart(2, '0');
@@ -532,43 +554,19 @@ function parseTime(str) {
     return h * 60 + m;
 }
 
-// Fix: Use local time (getUTCHours, getTimezoneOffset)
+// Fix: Use local time properly (using getUTCHours & getTimezoneOffset)
 function getMinutesSinceMidnight() {
-  let now = new Date();
-  return now.getUTCHours() * 60 + now.getUTCMinutes() - now.getTimezoneOffset();
+    let now = new Date();
+    return now.getUTCHours() * 60 + now.getUTCMinutes() - now.getTimezoneOffset();
 }
 
 // ----------------------
 // EMPTY SPACE (CLICK-TO-ADD)
 // ----------------------
 function addEmptySpaceClickHandlers() {
-  // Already attached to each schedule's container
+    // Already attached dynamically in renderSchedules
 }
 
 // ----------------------
 // CURRENT TIME RED LINE
-// ----------------------
-function startCurrentTimeLineUpdater() {
-    updateCurrentTimeLine(); // Initial call
-    setInterval(updateCurrentTimeLine, 60 * 1000); // Update every minute
-}
-
-function updateCurrentTimeLine() {
-    const lineEl = document.getElementById('current-time-line');
-    const nowMin = getMinutesSinceMidnight();
-    let topOffset = nowMin * RATIO;
-    if (topOffset < 0) topOffset = 0;
-    if (topOffset > DAY_HEIGHT) topOffset = DAY_HEIGHT;
-    lineEl.style.top = topOffset + "px";
-}
-
-
-//-----------------------
-// BACKGROUND CHANGE
-//-----------------------
-function changeBackground() {
-  const choice = prompt("Select background:\n1) Background 1\n2) Background 2");
-  let bgUrl = "";
-  if (choice === "1") {
-    bgUrl = "images/image1.png";  // Corrected relative path
-  } else if (
+// ----------------
