@@ -34,7 +34,6 @@ const RATIO = DAY_HEIGHT / 1440; // 0.6667 px per minute
 // UI INITIALIZATION - Function declarations FIRST
 // ----------------------
 
-//Function declaration, moving all function declarations to the beginning.
 function displayCurrentDate() {
     const currentDateEl = document.getElementById('current-date');
     const today = new Date();
@@ -54,6 +53,7 @@ function setupButtons() {
     document.getElementById('add-schedule').addEventListener('click', addNewSchedule);
     document.getElementById('save-event').addEventListener('click', addNewEvent);
 }
+
 // Populate the event schedule dropdown with an "All" option and each schedule title
 function updateEventScheduleOptions() {
     const select = document.getElementById('event-schedule');
@@ -69,6 +69,7 @@ function updateEventScheduleOptions() {
         select.appendChild(opt);
     });
 }
+
 function generateTimeline() {
   const timelineEl = document.getElementById('timeline');
   for (let hour = 0; hour < 24; hour++) {
@@ -88,6 +89,7 @@ function generateTimeSlotLines(containerId) {
     container.appendChild(line);
   }
 }
+
 // ----------------------
 // REALTIME FIRESTORE SYNC
 // ----------------------
@@ -132,6 +134,7 @@ function setupRealtimeListeners() {
 // ----------------------
 // RENDERING SCHEDULES & EVENTS
 // ----------------------
+
 function renderSchedules() {
     const container = document.getElementById('schedules-container');
     container.innerHTML = ""; // Clear existing schedules
@@ -141,9 +144,27 @@ function renderSchedules() {
         cal.classList.add('calendar');
         cal.dataset.scheduleIndex = index; // Store the index on the element
 
+        const titleContainer = document.createElement('div'); // Container for title and button
+        titleContainer.style.display = 'flex'; // Use flexbox for layout
+        titleContainer.style.justifyContent = 'space-between'; // Space out title and button
+        titleContainer.style.alignItems = 'center'; // Vertically center
+
         const title = document.createElement('h2');
         title.textContent = sch.calendarTitle;
-        cal.appendChild(title);
+        titleContainer.appendChild(title);
+
+        // Add a DELETE button for the schedule.  IMPORTANT: Use a closure to capture the correct index.
+        const deleteButton = document.createElement('button');
+        deleteButton.textContent = 'X';
+        deleteButton.style.color = 'red';
+        deleteButton.style.cursor = 'pointer';
+        deleteButton.addEventListener('click', (function(capturedIndex) {
+            return function() {
+                deleteSchedule(capturedIndex);
+            };
+        })(index)); // Immediately Invoked Function Expression (IIFE)
+        titleContainer.appendChild(deleteButton);
+        cal.appendChild(titleContainer);
 
         // Time Slots (fixed height, relative to calendar box)
         const slots = document.createElement('div');
@@ -175,6 +196,7 @@ function renderSchedules() {
         renderEventsForSchedule(index); // Now render the events *after* the structure is in place
     });
 }
+
 
 
 function renderEventsForSchedule(scheduleIndex) {
@@ -241,6 +263,18 @@ function renderEventsForSchedule(scheduleIndex) {
         resizer.addEventListener('mousedown', initResize);
         eventEl.appendChild(resizer);
 
+        // Add X button for deleting events
+        const deleteX = document.createElement('span');
+        deleteX.textContent = 'X';
+        deleteX.style.color = 'red';
+        deleteX.style.cursor = 'pointer';
+        deleteX.style.marginLeft = '5px'; // Add some spacing
+        deleteX.addEventListener('click', (e) => {
+            e.stopPropagation(); // Prevent event click handler
+            deleteEventFromFirestore(event.id, scheduleIndex);
+        });
+        eventEl.appendChild(deleteX);
+
         eventEl.addEventListener("click", (e) => {
            if (e.target.classList.contains('resizer')) return;
             handleEventClick(event, eventEl, scheduleIndex);
@@ -250,7 +284,6 @@ function renderEventsForSchedule(scheduleIndex) {
         container.appendChild(eventEl);
     });
 }
-
 
 
 // ----------------------
@@ -284,20 +317,13 @@ function clearSelectedEvent() {
     currentSelectedEvent = null;
 }
 
-function handleDeleteKey(e) {
-    if (e.key.toLowerCase() === "d" && currentSelectedEvent) {
-        const { scheduleIndex, eventIndex } = currentSelectedEvent;
-        const eventId = schedules[scheduleIndex].events[eventIndex].id; // Get document ID
-        deleteEventFromFirestore(eventId, scheduleIndex); // Delete from Firestore
-    }
-}
-
+//REMOVED HANDLE DELETE KEY (removed as requested)
 
 // ----------------------
 // ADD/CREATE EVENTS & SCHEDULES
 // ----------------------
 
-function addNewEvent() {
+async function addNewEvent() {
     const description = document.getElementById("event-description").value;
     const startTime = document.getElementById("start-time").value;
     const endTime = document.getElementById("end-time").value;
@@ -324,7 +350,7 @@ function addNewEvent() {
     if (scheduleIndexStr === 'all') {
         // Add to all schedules
         for (let i = 0; i < schedules.length; i++) {
-            addEventToFirestore(newEvent, i); // Pass the schedule index
+            await addEventToFirestore(newEvent, i); // Pass the schedule index
         }
     } else {
         scheduleIndex = parseInt(scheduleIndexStr, 10);
@@ -332,7 +358,7 @@ function addNewEvent() {
             alert("Invalid schedule selected.");
             return;
          }
-        addEventToFirestore(newEvent, scheduleIndex); // Pass the schedule index
+        await addEventToFirestore(newEvent, scheduleIndex); // Pass the schedule index
 
     }
     // Clear form fields after successful addition
@@ -342,28 +368,28 @@ function addNewEvent() {
     document.getElementById("event-image").value = ""; //clear image field
 }
 
-function createEventPrompt(scheduleIndex) {
-    const description = prompt("Enter event description:");
-    if (!description) return;
-    const startTime = prompt("Start time (HH:MM):", "09:00");
-    if (!startTime) return;
-    const endTime = prompt("End time (HH:MM):", "10:00");
-    if (!endTime) return;
+async function createEventPrompt(scheduleIndex) {
+  const description = prompt("Enter event description:");
+  if (!description) return;
+  const startTime = prompt("Start time (HH:MM):", "09:00");
+  if (!startTime) return;
+  const endTime = prompt("End time (HH:MM):", "10:00");
+  if (!endTime) return;
 
-    const newEvent = {
-        startTime,
-        endTime,
-        description,
-        done: false,
-        image: "",
-        comment: "",
-        timestamp: firebase.firestore.FieldValue.serverTimestamp() // Add a timestamp
-    };
+  const newEvent = {
+    startTime,
+    endTime,
+    description,
+    done: false,
+    image: "",
+    comment: "",
+    timestamp: firebase.firestore.FieldValue.serverTimestamp() // Add a timestamp
+  };
 
-    addEventToFirestore(newEvent, scheduleIndex); // Use Firestore, passing scheduleIndex
+  await addEventToFirestore(newEvent, scheduleIndex); // Use Firestore, passing scheduleIndex
 }
 
-function addNewSchedule() {
+async function addNewSchedule() {
     if (schedules.length >= MAX_SCHEDULES) {
         alert("Maximum number of schedules reached.");
         return;
@@ -375,7 +401,7 @@ function addNewSchedule() {
 
     const newSchedule = { calendarTitle: title, events: [] };
     schedules.push(newSchedule);  // Add to the local array
-    updateFirebaseWithEntireSchedule(); // *Correctly* update the entire schedules array in Firestore
+    await updateFirebaseWithEntireSchedule(); // *Correctly* update the entire schedules array in Firestore
     updateEventScheduleOptions(); // Update the dropdown in the UI
 }
 
@@ -409,13 +435,7 @@ async function deleteEventFromFirestore(eventId, scheduleIndex) {
       const eventRef = db.collection("events").doc(eventId);
       await eventRef.delete();
       console.log("Document successfully deleted!");
-
-        // Remove from local array after successful deletion. VERY IMPORTANT
-        const localEventIndex = schedules[scheduleIndex].events.findIndex(event => event.id === eventId);
-        if (localEventIndex > -1) {
-            schedules[scheduleIndex].events.splice(localEventIndex, 1);
-        }
-
+        // No need to modify schedules array, onSnapshot will handle that
     } catch (error) {
       console.error("Error deleting document: ", error);
     }
@@ -430,6 +450,29 @@ async function updateFirebaseWithEntireSchedule() {
     } catch (error) {
         console.error("Error updating schedules in Firestore: ", error);
     }
+}
+
+async function deleteSchedule(index){
+    //Prevent errors
+    if (index < 0 || index >= schedules.length) {
+        console.error("Invalid schedule index for deletion:", index);
+        return;
+    }
+
+    // Get the events of schedule we are deleting
+    const eventsToDelete = schedules[index].events;
+
+    // Delete each event individually from Firestore
+    // Use Promise.all to wait for all deletions to complete
+    await Promise.all(eventsToDelete.map(event => {
+        return deleteEventFromFirestore(event.id, index);
+    }));
+
+    //Now, it's safe to remove from the local schedule, as those have been deleted.
+    schedules.splice(index, 1); // Remove from local array
+
+    //Finally, we update the entire Firebase.
+    await updateFirebaseWithEntireSchedule()
 }
 
 // ----------------------
@@ -565,7 +608,8 @@ function parseTime(str) {
 // Fix: Use local time properly (using getUTCHours & getTimezoneOffset)
 function getMinutesSinceMidnight() {
     let now = new Date();
-    return now.getUTCHours() * 60 + now.getUTCMinutes() - now.getTimezoneOffset();
+     // Bandaid fix: Add 180 minutes (3 hours)
+    return now.getUTCHours() * 60 + now.getUTCMinutes() - now.getTimezoneOffset() + 180;
 }
 
 // ----------------------
@@ -632,7 +676,7 @@ function renameCalendars() {
         }
       }
     }
-  updateFirebaseWithEntireSchedule()
+    updateFirebaseWithEntireSchedule()
 }
 
 // On load
@@ -643,5 +687,5 @@ window.addEventListener('DOMContentLoaded', () => {
   setupRealtimeListeners(); // Listen for changes in Firestore
   startCurrentTimeLineUpdater();
   addEmptySpaceClickHandlers();
-  document.addEventListener('keydown', handleDeleteKey);
+  // document.addEventListener('keydown', handleDeleteKey); //Removed
 });
