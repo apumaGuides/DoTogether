@@ -1,62 +1,75 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>Enhanced Shared Calendar (Real Time with Firestore)</title>
-  <link rel="stylesheet" href="styles.css">
-  <!-- Firebase SDK - Use the compat versions for this example -->
-    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <header>
     <h1 id="current-date"></h1>
-    <div class="header-buttons">
+    <div>
       <button id="prev-day">Previous Day</button>
       <button id="next-day">Next Day</button>
       <button id="rename-calendars">Rename Calendars</button>
       <button id="change-background">Change Background</button>
-      <button id="add-schedule">Add New Schedule</button>
     </div>
   </header>
 
-  <!-- Event Input Form -->
+  <!-- Section for adding new events manually -->
   <section id="event-input">
     <h2>Add New Event</h2>
-    <label for="event-description">Description:</label>
-    <input type="text" id="event-description" placeholder="Team Meeting">
+    
+    <label for="event-description">Event Description:</label>
+    <input type="text" id="event-description" placeholder="e.g., Team Meeting" />
+
+    <label for="event-user">User:</label>
+    <select id="event-user">
+      <option value="my">Me</option>
+      <option value="friend">My Friend</option>
+    </select>
+
     <label for="start-time">Start Time (HH:MM):</label>
-    <input type="text" id="start-time" placeholder="08:00">
+    <input type="text" id="start-time" placeholder="08:00" />
+
     <label for="end-time">End Time (HH:MM):</label>
-    <input type="text" id="end-time" placeholder="10:00">
+    <input type="text" id="end-time" placeholder="10:00" />
+
+    <!-- Dropdown for pre-selectable event background images -->
     <label for="event-image">Event Background:</label>
     <select id="event-image">
       <option value="">None</option>
       <option value="image1">Image 1</option>
       <option value="image2">Image 2</option>
     </select>
-    <label for="event-schedule">Schedule:</label>
-    <select id="event-schedule">
-      <!-- Options will be populated dynamically -->
-    </select>
+
     <button id="save-event">Save Event</button>
   </section>
 
-  <!-- Main Container -->
-  <div class="main-container">
-    <!-- Timeline (left column) -->
+  <!-- Main container: timeline + two calendars -->
+  <div class="calendar-container">
+    <!-- Timeline (hour markers) on the left -->
     <div class="timeline" id="timeline"></div>
-    <!-- Schedules Container (right, flexible) -->
-    <div id="schedules-container" class="schedules-container">
-      <!-- Schedule boxes will be generated dynamically -->
-    </div>
+
+    <!-- My schedule -->
+    <section id="my-calendar" class="calendar">
+      <h2 id="my-calendar-title">My Schedule</h2>
+      <div class="time-slots" id="my-time-slots"></div>
+      <div class="events-container" id="my-events-container"></div>
+    </section>
+
+    <!-- Friend's schedule -->
+    <section id="friend-calendar" class="calendar">
+      <h2 id="friend-calendar-title">Friend's Schedule</h2>
+      <div class="time-slots" id="friend-time-slots"></div>
+      <div class="events-container" id="friend-events-container"></div>
+    </section>
   </div>
 
-  <!-- Current Time Red Line -->
+  <!-- Thin red line for current time -->
   <div id="current-time-line"></div>
 
-  <!-- Use type="module" ONLY if you are using module imports in script.js-->
-  <script src="script.js"></script>
+  <!-- Load our script as a module -->
+  <script type="module" src="script.js"></script>
 </body>
 </html>
