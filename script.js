@@ -184,6 +184,10 @@ function renderSchedules() {
         eventsCont.id = `events-container-${index}`; // Unique ID for each container
         eventsCont.dataset.scheduleIndex = index;
 
+        // Add these drag event listeners
+        eventsCont.addEventListener('dragover', onDragOver);
+        eventsCont.addEventListener('drop', onDrop);
+
         // Enable click-to-add on empty space
         eventsCont.addEventListener('click', (e) => {
             if (e.target === eventsCont) {
@@ -496,29 +500,38 @@ function onDragOver(e) {
 function onDrop(e) {
     e.preventDefault();
     const container = e.currentTarget;
-    const scheduleIndex = parseInt(container.dataset.scheduleIndex, 10); // Get scheduleIndex from *container*
+    const scheduleIndex = parseInt(container.dataset.scheduleIndex, 10);
     const rect = container.getBoundingClientRect();
-    const dropY = e.clientY - rect.top;  // Relative to container, not document!
+    const dropY = e.clientY - rect.top;
     let newStartMin = Math.round(dropY / RATIO);
+    
+    // Add bounds checking
+    if (newStartMin < 0) newStartMin = 0;
+    if (newStartMin > 1440) newStartMin = 1440;
+    
     const data = JSON.parse(e.dataTransfer.getData("text/plain"));
     const duration = parseInt(data.duration, 10);
+    
+    // Ensure event doesn't go beyond day boundary
+    if (newStartMin + duration > 1440) {
+        newStartMin = 1440 - duration;
+    }
+    
     const newStartStr = toHHMM(newStartMin);
     const newEndStr = toHHMM(newStartMin + duration);
 
+    const eventIndex = schedules[scheduleIndex].events.findIndex(event => event.id === data.id);
 
-    // Find the event in the correct schedule and update it:
-        const eventIndex = schedules[scheduleIndex].events.findIndex(event => event.id === data.id);
-
-        if(eventIndex !== -1){
-          schedules[scheduleIndex].events[eventIndex] = {
+    if(eventIndex !== -1) {
+        schedules[scheduleIndex].events[eventIndex] = {
             ...schedules[scheduleIndex].events[eventIndex],
-             startTime: newStartStr,
-             endTime: newEndStr
-          }
-          updateEventInFirestore(data.id, { startTime: newStartStr, endTime: newEndStr }, scheduleIndex);
-        } else {
-            console.error('Event to update not found');
+            startTime: newStartStr,
+            endTime: newEndStr
         }
+        updateEventInFirestore(data.id, { startTime: newStartStr, endTime: newEndStr }, scheduleIndex);
+    } else {
+        console.error('Event to update not found');
+    }
 }
 
 
@@ -608,8 +621,8 @@ function parseTime(str) {
 // Fix: Use local time properly (using getUTCHours & getTimezoneOffset)
 function getMinutesSinceMidnight() {
     let now = new Date();
-     // Bandaid fix: Add 180 minutes (3 hours)
-    return now.getUTCHours() * 60 + now.getUTCMinutes() - now.getTimezoneOffset() + 180;
+     // Bandaid fix: Add 240 minutes (4 hours) instead of 180 (3 hours)
+    return now.getUTCHours() * 60 + now.getUTCMinutes() - now.getTimezoneOffset() + 240;
 }
 
 // ----------------------
