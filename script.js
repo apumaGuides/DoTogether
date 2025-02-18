@@ -95,26 +95,38 @@ function generateTimeSlotLines(containerId) {
 // ----------------------
 
 function setupRealtimeListeners() {
-    const eventsDocRef = db.collection("events"); // Reference the 'events' collection
+    // First, get the schedules structure document
+    const schedulesDocRef = db.collection("calendar").doc("events");
+    schedulesDocRef.onSnapshot((doc) => {
+        if (doc.exists && doc.data().schedules) {
+            // Update schedules structure (preserving empty schedules)
+            schedules = doc.data().schedules;
+        }
+    });
 
+    // Then listen for event changes
+    const eventsDocRef = db.collection("events");
     eventsDocRef.onSnapshot((querySnapshot) => {
-        let newSchedules = [];
+        // Create a deep copy of the current schedules to preserve empty ones
+        let updatedSchedules = schedules.map(schedule => ({
+            ...schedule,
+            events: [] // Clear events, we'll repopulate them
+        }));
+
         querySnapshot.forEach((doc) => {
             const eventData = doc.data();
-            // Find the correct schedule index, create if it doesn't exist
             let scheduleIndex = eventData.scheduleIndex;
-            if (scheduleIndex === undefined || scheduleIndex === null) {
-                // Default or error case, choose a default schedule.  Here, I'll use 0.
-                scheduleIndex = 0;
+            
+            // Ensure the schedule exists
+            while (updatedSchedules.length <= scheduleIndex) {
+                updatedSchedules.push({
+                    calendarTitle: `Schedule ${updatedSchedules.length + 1}`,
+                    events: []
+                });
             }
 
-            // Ensure we have enough schedules.
-            while (newSchedules.length <= scheduleIndex) {
-                newSchedules.push({ calendarTitle: `Schedule ${newSchedules.length + 1}`, events: [] });
-            }
-
-            newSchedules[scheduleIndex].events.push({
-                id: doc.id, // Store the document ID
+            updatedSchedules[scheduleIndex].events.push({
+                id: doc.id,
                 startTime: eventData.startTime,
                 endTime: eventData.endTime,
                 description: eventData.description,
@@ -124,7 +136,8 @@ function setupRealtimeListeners() {
             });
         });
 
-        schedules = newSchedules;
+        // Update schedules while preserving empty ones
+        schedules = updatedSchedules;
         renderSchedules();
         updateEventScheduleOptions();
     });
@@ -191,7 +204,7 @@ function renderSchedules() {
         // Enable click-to-add on empty space
         eventsCont.addEventListener('click', (e) => {
             if (e.target === eventsCont) {
-                createEventPrompt(index);
+                createEventPrompt(index, e);
             }
         });
         cal.appendChild(eventsCont);
@@ -213,9 +226,17 @@ function renderEventsForSchedule(scheduleIndex) {
 
     const events = schedules[scheduleIndex]?.events || []; // Handle potential undefined
 
+    // Get current time WITHOUT the bandaid fix
+    const now = new Date();
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
     events.forEach((event, index) => {
         const eventEl = document.createElement('div');
         eventEl.classList.add('event');
+        eventEl.draggable = true; // Keep draggable attribute
+        eventEl.dataset.index = index;
+        eventEl.dataset.scheduleIndex = scheduleIndex;
+        eventEl.dataset.eventId = event.id;
 
         if (scheduleIndex % 2 === 1) eventEl.classList.add('friend-event');
         if (event.image) eventEl.classList.add(event.image);
@@ -227,62 +248,64 @@ function renderEventsForSchedule(scheduleIndex) {
         eventEl.style.top = (startMin * RATIO) + 'px';
         eventEl.style.height = (duration * RATIO) + 'px';
 
-        eventEl.draggable = true;
-        eventEl.dataset.index = index;
-        eventEl.dataset.scheduleIndex = scheduleIndex; // Use stored scheduleIndex
-        eventEl.dataset.duration = duration.toString();
-        eventEl.dataset.id = event.id; // Store document ID
-        eventEl.addEventListener('dragstart', onDragStart);
-
-        const now = getMinutesSinceMidnight();
-        if (now >= startMin && now < endMin) {
+        if (currentMinutes >= startMin && currentMinutes < endMin) {
             eventEl.classList.add('current-event');
         }
 
-        const checkbox = document.createElement("input");
-        checkbox.type = "checkbox";
-        checkbox.checked = event.done;
-        checkbox.addEventListener("change", () => {
-            event.done = checkbox.checked;
-            updateEventInFirestore(event.id, { done: event.done }, scheduleIndex);
+        // Add description and comment
+        eventEl.innerHTML = `
+            ${event.description}
+            ${event.comment ? `<span class="comment">${event.comment}</span>` : ''}
+            <div class="resizer"></div>
+        `;
+
+        // Add drag event listeners
+        eventEl.addEventListener('dragstart', (e) => {
+            const duration = endMin - startMin;
+            e.dataTransfer.setData('text/plain', JSON.stringify({
+                id: event.id,
+                duration: duration
+            }));
         });
-        eventEl.appendChild(checkbox);
 
-
-        const descSpan = document.createElement("span");
-        descSpan.textContent = event.description;
-        eventEl.appendChild(descSpan);
-
-
-        if (event.comment) {
-            const commentEl = document.createElement("div");
-            commentEl.classList.add("comment");
-            commentEl.textContent = event.comment;
-            eventEl.appendChild(commentEl);
-        }
-
-
-        const resizer = document.createElement('div');
-        resizer.classList.add('resizer');
-        resizer.addEventListener('mousedown', initResize);
-        eventEl.appendChild(resizer);
-
-        // Add X button for deleting events
-        const deleteX = document.createElement('span');
-        deleteX.textContent = 'X';
-        deleteX.style.color = 'red';
-        deleteX.style.cursor = 'pointer';
-        deleteX.style.marginLeft = '5px'; // Add some spacing
-        deleteX.addEventListener('click', (e) => {
-            e.stopPropagation(); // Prevent event click handler
-            deleteEventFromFirestore(event.id, scheduleIndex);
-        });
-        eventEl.appendChild(deleteX);
-
+        // Add click handlers
         eventEl.addEventListener("click", (e) => {
-           if (e.target.classList.contains('resizer')) return;
+            if (e.target.classList.contains('resizer')) return;
+            clearSelectedEvent();
+            eventEl.classList.add('selected');
+            currentSelectedEvent = { 
+                eventObj: event, 
+                eventIndex: eventEl.dataset.index, 
+                scheduleIndex, 
+                user: "all" 
+            };
+            e.stopPropagation();
+        });
+
+        eventEl.addEventListener("dblclick", (e) => {
+            if (e.target.classList.contains('resizer')) return;
             handleEventClick(event, eventEl, scheduleIndex);
             e.stopPropagation();
+        });
+
+        // Add resize functionality
+        const resizer = eventEl.querySelector('.resizer');
+        resizer.addEventListener('mousedown', function(e) {
+            e.stopPropagation();
+            isResizing = true;
+            currentResizer = this;
+            startY = e.clientY;
+            initialHeight = eventEl.offsetHeight;
+            
+            resizingData = {
+                eventIndex: parseInt(eventEl.dataset.index, 10),
+                scheduleIndex: parseInt(eventEl.dataset.scheduleIndex, 10),
+                startMin: startMin,
+                id: event.id
+            };
+
+            document.addEventListener('mousemove', resizeEvent);
+            document.addEventListener('mouseup', stopResize);
         });
 
         container.appendChild(eventEl);
@@ -295,11 +318,8 @@ function renderEventsForSchedule(scheduleIndex) {
 // ----------------------
 
 function handleEventClick(eventObj, eventEl, scheduleIndex) {
-    clearSelectedEvent();
-    eventEl.classList.add('selected');
-    currentSelectedEvent = { eventObj, eventIndex: eventEl.dataset.index, scheduleIndex, user: "all" }; //Store event
     const action = prompt(
-        `Event: "${eventObj.description}"\nChoose an action:\n1) Rename\n2) Add Comment\n(Then press "D" to delete)`
+        `Event: "${eventObj.description}"\nChoose an action:\n1) Rename\n2) Add Comment`
     );
     if (action === "1") {
         const newName = prompt("Enter new description:", eventObj.description);
@@ -372,25 +392,34 @@ async function addNewEvent() {
     document.getElementById("event-image").value = ""; //clear image field
 }
 
-async function createEventPrompt(scheduleIndex) {
-  const description = prompt("Enter event description:");
-  if (!description) return;
-  const startTime = prompt("Start time (HH:MM):", "09:00");
-  if (!startTime) return;
-  const endTime = prompt("End time (HH:MM):", "10:00");
-  if (!endTime) return;
+function createEventPrompt(scheduleIndex, e) {
+    // Calculate clicked time based on mouse position
+    const container = document.getElementById(`events-container-${scheduleIndex}`);
+    const rect = container.getBoundingClientRect();
+    const clickY = e.clientY - rect.top;
+    const clickedMinutes = Math.round(clickY / RATIO);
+    
+    // Round to nearest 30 minutes for better UX
+    const roundedMinutes = Math.round(clickedMinutes / 30) * 30;
+    
+    // Calculate start and end times
+    const startTime = toHHMM(roundedMinutes);
+    const endTime = toHHMM(roundedMinutes + 60); // Add 1 hour
 
-  const newEvent = {
-    startTime,
-    endTime,
-    description,
-    done: false,
-    image: "",
-    comment: "",
-    timestamp: firebase.firestore.FieldValue.serverTimestamp() // Add a timestamp
-  };
+    const description = prompt("Enter event description:");
+    if (!description) return;
 
-  await addEventToFirestore(newEvent, scheduleIndex); // Use Firestore, passing scheduleIndex
+    const newEvent = {
+        startTime,
+        endTime,
+        description,
+        done: false,
+        image: "",
+        comment: "",
+        timestamp: firebase.firestore.FieldValue.serverTimestamp()
+    };
+
+    addEventToFirestore(newEvent, scheduleIndex);
 }
 
 async function addNewSchedule() {
@@ -405,8 +434,9 @@ async function addNewSchedule() {
 
     const newSchedule = { calendarTitle: title, events: [] };
     schedules.push(newSchedule);  // Add to the local array
-    await updateFirebaseWithEntireSchedule(); // *Correctly* update the entire schedules array in Firestore
-    updateEventScheduleOptions(); // Update the dropdown in the UI
+    await updateFirebaseWithEntireSchedule(); // Update Firebase
+    renderSchedules(); // Re-render the UI
+    updateEventScheduleOptions(); // Update the dropdown
 }
 
 // ----------------------
@@ -456,8 +486,8 @@ async function updateFirebaseWithEntireSchedule() {
     }
 }
 
-async function deleteSchedule(index){
-    //Prevent errors
+async function deleteSchedule(index) {
+    // Prevent errors
     if (index < 0 || index >= schedules.length) {
         console.error("Invalid schedule index for deletion:", index);
         return;
@@ -466,17 +496,44 @@ async function deleteSchedule(index){
     // Get the events of schedule we are deleting
     const eventsToDelete = schedules[index].events;
 
-    // Delete each event individually from Firestore
-    // Use Promise.all to wait for all deletions to complete
-    await Promise.all(eventsToDelete.map(event => {
-        return deleteEventFromFirestore(event.id, index);
-    }));
+    try {
+        // 1. Delete all events from this schedule from Firestore
+        await Promise.all(eventsToDelete.map(event => {
+            return deleteEventFromFirestore(event.id, index);
+        }));
 
-    //Now, it's safe to remove from the local schedule, as those have been deleted.
-    schedules.splice(index, 1); // Remove from local array
+        // 2. Remove the schedule from local array
+        schedules.splice(index, 1);
 
-    //Finally, we update the entire Firebase.
-    await updateFirebaseWithEntireSchedule()
+        // 3. Update schedule indices for all events in remaining schedules
+        const batch = db.batch();
+        const eventsRef = db.collection("events");
+        
+        // Get all remaining events
+        const snapshot = await eventsRef.get();
+        snapshot.forEach(doc => {
+            const eventData = doc.data();
+            if (eventData.scheduleIndex > index) {
+                // Decrease scheduleIndex for events that were in later schedules
+                batch.update(doc.ref, {
+                    scheduleIndex: eventData.scheduleIndex - 1
+                });
+            }
+        });
+        
+        // Execute all the updates
+        await batch.commit();
+
+        // 4. Update Firebase with new schedule structure
+        await updateFirebaseWithEntireSchedule();
+
+        // 5. Re-render the UI
+        renderSchedules();
+        updateEventScheduleOptions();
+
+    } catch (error) {
+        console.error("Error during schedule deletion:", error);
+    }
 }
 
 // ----------------------
@@ -537,70 +594,108 @@ function onDrop(e) {
 
 // RESIZING: Add a resizer handle to each event
 
+let isDragging = false;
 let isResizing = false;
-let currentResizer = null;
-let startY = 0;
-let initialHeight = 0;
-let resizingData = null; // Store data during resizing
+let dragStartY = 0;
+let originalTop = 0;
+let originalHeight = 0;
+let currentDragElement = null;
+let currentResizeElement = null;
 
-function initResize(e) {
-    e.stopPropagation();  // VERY IMPORTANT: Prevent click event on event
-    isResizing = true;
-    currentResizer = e.target;
-    startY = e.clientY;
+function setupEventDragAndResize(eventEl, event, scheduleIndex) {
+    // Drag functionality
+    eventEl.addEventListener('mousedown', (e) => {
+        if (e.target.classList.contains('resizer')) return;
+        isDragging = true;
+        isResizing = false;
+        currentDragElement = eventEl;
+        dragStartY = e.clientY;
+        originalTop = parseInt(eventEl.style.top);
+        e.stopPropagation();
+    });
 
-    const eventEl = currentResizer.parentElement;
-    initialHeight = eventEl.offsetHeight;
-
-    resizingData = {
-        eventIndex: parseInt(eventEl.dataset.index, 10), // Parse to integer
-        scheduleIndex: parseInt(eventEl.dataset.scheduleIndex, 10), // Parse to integer
-        startMin: parseTime(schedules[parseInt(eventEl.dataset.scheduleIndex, 10)].events[parseInt(eventEl.dataset.index, 10)].startTime), // Get correct start time
-        id: eventEl.dataset.id,
-    };
-
-    document.addEventListener('mousemove', resizeEvent);
-    document.addEventListener('mouseup', stopResize);
+    // Resize functionality
+    const resizer = eventEl.querySelector('.resizer');
+    resizer.addEventListener('mousedown', (e) => {
+        isResizing = true;
+        isDragging = false;
+        currentResizeElement = eventEl;
+        dragStartY = e.clientY;
+        originalHeight = eventEl.offsetHeight;
+        e.stopPropagation();
+    });
 }
 
-
-function resizeEvent(e) {
-    if (!isResizing) return;
-    const eventEl = currentResizer.parentElement;
-    let newHeight = initialHeight + (e.clientY - startY);
-    if (newHeight < 20) newHeight = 20; // Minimum height
-    eventEl.style.height = newHeight + "px";
-}
-
-function stopResize(e) {
-  if (!isResizing) return;
-
-    const eventEl = currentResizer.parentElement;
-    const newHeight = eventEl.offsetHeight;
-    const newDuration = Math.round(newHeight / RATIO);
-    const newEndMin = resizingData.startMin + newDuration;
-    const newEndTime = toHHMM(newEndMin);
-
-
-    //Update Firebase
-    const eventIndex = schedules[resizingData.scheduleIndex].events.findIndex(event => event.id === resizingData.id);
-
-    if(eventIndex !== -1){
-       schedules[resizingData.scheduleIndex].events[eventIndex] = {
-          ...schedules[resizingData.scheduleIndex].events[eventIndex],
-          endTime: newEndTime,
-       }
-        updateEventInFirestore(resizingData.id, { endTime: newEndTime }, resizingData.scheduleIndex);
-    } else{
-        console.error('Event not found');
+// Add these global mouse event listeners
+document.addEventListener('mousemove', (e) => {
+    if (isDragging && currentDragElement) {
+        const deltaY = e.clientY - dragStartY;
+        let newTop = originalTop + deltaY;
+        
+        // Constrain to schedule bounds
+        if (newTop < 0) newTop = 0;
+        if (newTop > DAY_HEIGHT - currentDragElement.offsetHeight) {
+            newTop = DAY_HEIGHT - currentDragElement.offsetHeight;
+        }
+        
+        currentDragElement.style.top = `${newTop}px`;
     }
+    
+    if (isResizing && currentResizeElement) {
+        const deltaY = e.clientY - dragStartY;
+        let newHeight = originalHeight + deltaY;
+        
+        // Minimum height and maximum based on schedule bounds
+        const currentTop = parseInt(currentResizeElement.style.top);
+        const maxHeight = DAY_HEIGHT - currentTop;
+        newHeight = Math.max(30, Math.min(newHeight, maxHeight)); // Minimum 30px height
+        
+        currentResizeElement.style.height = `${newHeight}px`;
+    }
+});
 
-
+document.addEventListener('mouseup', (e) => {
+    if (isDragging && currentDragElement) {
+        const newTop = parseInt(currentDragElement.style.top);
+        const newStartMin = Math.round(newTop / RATIO);
+        const duration = Math.round(currentDragElement.offsetHeight / RATIO);
+        
+        // Update event times
+        const newStartTime = toHHMM(newStartMin);
+        const newEndTime = toHHMM(newStartMin + duration);
+        
+        // Get event data and update in Firestore
+        const eventId = currentDragElement.dataset.eventId;
+        const scheduleIndex = parseInt(currentDragElement.dataset.scheduleIndex);
+        
+        updateEventInFirestore(eventId, {
+            startTime: newStartTime,
+            endTime: newEndTime
+        }, scheduleIndex);
+    }
+    
+    if (isResizing && currentResizeElement) {
+        const newHeight = currentResizeElement.offsetHeight;
+        const startMin = Math.round(parseInt(currentResizeElement.style.top) / RATIO);
+        const newDuration = Math.round(newHeight / RATIO);
+        
+        // Update event times
+        const newEndTime = toHHMM(startMin + newDuration);
+        
+        // Get event data and update in Firestore
+        const eventId = currentResizeElement.dataset.eventId;
+        const scheduleIndex = parseInt(currentResizeElement.dataset.scheduleIndex);
+        
+        updateEventInFirestore(eventId, {
+            endTime: newEndTime
+        }, scheduleIndex);
+    }
+    
+    isDragging = false;
     isResizing = false;
-    currentResizer = null;
-    document.removeEventListener('mousemove', resizeEvent);
-    document.removeEventListener('mouseup', stopResize);
-}
+    currentDragElement = null;
+    currentResizeElement = null;
+});
 
 // ----------------------
 // UTILITY FUNCTIONS
@@ -620,9 +715,36 @@ function parseTime(str) {
 
 // Fix: Use local time properly (using getUTCHours & getTimezoneOffset)
 function getMinutesSinceMidnight() {
-    let now = new Date();
-     // Bandaid fix: Add 240 minutes (4 hours) instead of 180 (3 hours)
-    return now.getUTCHours() * 60 + now.getUTCMinutes() - now.getTimezoneOffset() + 240;
+    const now = new Date();
+    const hours = now.getHours();
+    const minutes = now.getMinutes();
+    const totalMinutes = (hours * 60) + minutes;
+    
+    console.log('Time Calculation Debug:', {
+        rawDate: now,
+        rawHours: now.getHours(),
+        rawMinutes: now.getMinutes(),
+        calculatedTotalMinutes: totalMinutes,
+        
+        // Verification
+        timeString: now.toLocaleTimeString(),
+        timeStringWith24Hour: now.toLocaleTimeString('en-US', { hour12: false }),
+        
+        // Constants check
+        DAY_HEIGHT,
+        RATIO,
+        expectedPixels: totalMinutes * RATIO,
+        
+        // Alternative calculations
+        hoursFromGetHours: now.getHours(),
+        minutesFromGetMinutes: now.getMinutes(),
+        
+        // System info
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        localeString: now.toLocaleString()
+    });
+    
+    return totalMinutes;
 }
 
 // ----------------------
@@ -642,11 +764,42 @@ function startCurrentTimeLineUpdater() {
 
 function updateCurrentTimeLine() {
     const lineEl = document.getElementById('current-time-line');
+    const container = document.querySelector('#schedules-container');
+    
+    if (!container || !lineEl) {
+        console.error('Required elements not found');
+        return;
+    }
+    
     const nowMin = getMinutesSinceMidnight();
-    let topOffset = nowMin * RATIO;
-    if (topOffset < 0) topOffset = 0;
-    if (topOffset > DAY_HEIGHT) topOffset = DAY_HEIGHT;
-    lineEl.style.top = topOffset + "px";
+    // Change from 440 to 260 minutes (7h20m - 3h = 4h20m)
+    const adjustedMin = nowMin + 260;
+    const percentOfDay = adjustedMin / 1440;
+    
+    // Force container to have fixed height
+    container.style.height = `${DAY_HEIGHT}px`;
+    container.style.position = 'relative';
+    container.style.overflow = 'hidden';
+    
+    // Position the line
+    lineEl.style.position = 'absolute';
+    lineEl.style.left = '0';
+    lineEl.style.right = '0';
+    lineEl.style.width = '100%';
+    lineEl.style.top = `${DAY_HEIGHT * percentOfDay}px`;
+    
+    console.log('Time Line Position:', {
+        time: {
+            current: new Date().toLocaleTimeString('en-US', { hour12: false }),
+            originalMinutes: nowMin,
+            adjustedMinutes: adjustedMin,
+            expectedTime: `${Math.floor(adjustedMin/60)}:${String(adjustedMin%60).padStart(2, '0')}`
+        },
+        position: {
+            calculatedTop: `${DAY_HEIGHT * percentOfDay}px`,
+            actualTop: lineEl.offsetTop
+        }
+    });
 }
 
 
@@ -679,17 +832,21 @@ function renameCalendars() {
     for (let i = 0; i < schedules.length; i++) {
         let newTitle = prompt(`Enter new title for schedule "${schedules[i].calendarTitle}":`, schedules[i].calendarTitle);
         if (newTitle !== null) {
-          newNames.push(newTitle)
+            newNames.push(newTitle);
         }
     }
-    if(newNames.length){
-      for(let i = 0; i < schedules.length; i++){
-        if(newNames[i] !== null){
-          schedules[i].calendarTitle = newNames[i]
+    
+    if(newNames.length) {
+        for(let i = 0; i < schedules.length; i++) {
+            if(newNames[i] !== null) {
+                schedules[i].calendarTitle = newNames[i];
+            }
         }
-      }
+        updateFirebaseWithEntireSchedule().then(() => {
+            renderSchedules(); // Re-render the UI after Firebase update
+            updateEventScheduleOptions(); // Update the dropdown
+        });
     }
-    updateFirebaseWithEntireSchedule()
 }
 
 // On load
@@ -700,5 +857,42 @@ window.addEventListener('DOMContentLoaded', () => {
   setupRealtimeListeners(); // Listen for changes in Firestore
   startCurrentTimeLineUpdater();
   addEmptySpaceClickHandlers();
-  // document.addEventListener('keydown', handleDeleteKey); //Removed
+  document.addEventListener('keydown', handleDeleteKey);
 });
+
+// Keep the existing resize functions
+function resizeEvent(e) {
+    if (!isResizing) return;
+    const eventEl = currentResizer.parentElement;
+    let newHeight = initialHeight + (e.clientY - startY);
+    if (newHeight < 20) newHeight = 20; // Minimum height
+    eventEl.style.height = newHeight + "px";
+}
+
+function stopResize(e) {
+    if (!isResizing) return;
+
+    const eventEl = currentResizer.parentElement;
+    const newHeight = eventEl.offsetHeight;
+    const newDuration = Math.round(newHeight / RATIO);
+    const newEndMin = resizingData.startMin + newDuration;
+    const newEndTime = toHHMM(newEndMin);
+
+    // Update Firebase
+    updateEventInFirestore(resizingData.id, { endTime: newEndTime }, resizingData.scheduleIndex);
+
+    isResizing = false;
+    currentResizer = null;
+    document.removeEventListener('mousemove', resizeEvent);
+    document.removeEventListener('mouseup', stopResize);
+}
+
+function handleDeleteKey(e) {
+    if (e.key === 'Delete' && currentSelectedEvent) {
+        const { eventObj, scheduleIndex } = currentSelectedEvent;
+        if (confirm(`Are you sure you want to delete "${eventObj.description}"?`)) {
+            deleteEventFromFirestore(eventObj.id, scheduleIndex);
+            currentSelectedEvent = null;
+        }
+    }
+}
