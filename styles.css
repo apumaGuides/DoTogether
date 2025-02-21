@@ -26,6 +26,7 @@ header {
   background: white;
   border-radius: 8px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  margin-left: 250px; /* Match sidebar width */
 }
 
 #current-date {
@@ -55,29 +56,17 @@ header {
    Event Input Form
    =============================== */
 #event-input {
-  background: white;
-  padding: 12px 16px;
-  border-radius: 8px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-  margin-bottom: 15px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: center;
-}
-
-#event-input label {
-  margin-right: 4px;
-  font-size: 0.9rem;
+  margin: 20px;
+  padding: 10px;
+  background-color: #f5f5f5;
+  border-radius: 5px;
 }
 
 #event-input input,
-#event-input select {
-  padding: 6px 10px;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  font-size: 0.9rem;
-  margin: 0;
+#event-input select,
+#event-input button {
+  margin: 5px;
+  padding: 5px;
 }
 
 /* Modern delete button */
@@ -120,6 +109,7 @@ header {
    =============================== */
 .main-container {
   display: flex;
+  margin-left: 250px; /* Match sidebar width */
 }
 
 /* Timeline (left column) */
@@ -128,14 +118,21 @@ header {
   background-color: white;
   border-right: 1px solid #e2e8f0;
   padding: 10px;
+  height: 800px;
 }
 
 .time-label {
-  height: 40px;
-  line-height: 40px;
+  height: 32px;
+  line-height: 32px;
+  font-size: 0.85rem;
   font-weight: bold;
   color: #64748b;
-  font-size: 0.875rem;
+}
+
+/* Add specific style for the last time label (24:00) */
+.time-label:last-child {
+  height: 33px;
+  margin-bottom: 2px;
 }
 
 /* Schedules Container: flex so schedules shrink as more are added */
@@ -153,7 +150,7 @@ header {
   box-shadow: 0 1px 3px rgba(0,0,0,0.1);
   position: relative;
   overflow: hidden;
-  height: 960px; /* Match DAY_HEIGHT */
+  height: 800px;
 }
 
 /* Calendar header (title) inside schedule box */
@@ -163,13 +160,13 @@ header {
   font-size: 1.1rem;
 }
 
-/* Time Slots and Events – fixed height of 960px */
+/* Time Slots and Events – fixed height of 800px */
 .time-slots {
   position: absolute;
   top: 35px;
   left: 0;
   right: 0;
-  height: 960px;
+  height: 800px;
   border-bottom: 1px solid #ccc;
   pointer-events: none;
 }
@@ -188,7 +185,7 @@ header {
   top: 35px;
   left: 0;
   right: 0;
-  height: 960px; /* This should match DAY_HEIGHT */
+  height: 800px;
 }
 
 /* ===============================
@@ -198,12 +195,16 @@ header {
   position: absolute;
   left: 5%;
   right: 5%;
-  padding: 10px;
+  padding: 2px 4px;
   border-radius: 8px;
-  font-size: 0.9rem;
+  font-size: 12px;
   cursor: grab;
   background: linear-gradient(135deg, #60a5fa30, #3b82f630);
   box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  min-height: 25px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Friend schedule event style */
@@ -249,19 +250,32 @@ header {
   bottom: 0;
   right: 0;
   width: 12px;
-  height: 12px;
+  height: 4px;
   background-color: rgba(0,0,0,0.5);
   cursor: se-resize;
   border-radius: 50%;
+  margin-top: auto;
 }
 
 /* Style for event comment */
 .comment {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: #666;
+  display: none;
+  line-height: 12px;
+}
+
+/* Show comment only when there's enough height */
+.event[style*="height: 40"] .comment,
+.event[style*="height: 5"] .comment,
+.event[style*="height: 6"] .comment,
+.event[style*="height: 7"] .comment,
+.event[style*="height: 8"] .comment,
+.event[style*="height: 9"] .comment {
   display: block;
-  font-size: 14px;
-  font-style: italic;
-  margin-top: 4px;
-  color: #333;
 }
 
 /* Checkbox inside event */
@@ -301,4 +315,210 @@ header {
   .schedules-container {
     flex-direction: column;
   }
+}
+
+.sidebar {
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 250px;
+  background: #f5f5f5;
+  padding: 20px;
+  box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+  overflow-y: auto;
+  z-index: 1000;
+}
+
+.inventory-section {
+  margin-bottom: 30px;
+}
+
+.inventory-section h3 {
+  margin-bottom: 15px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid #ddd;
+}
+
+.inventory-items {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.inventory-item {
+  background: white;
+  padding: 10px;
+  border-radius: 5px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  cursor: move;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.inventory-item:hover {
+  background-color: rgba(240, 240, 240, 0.6);
+}
+
+.item-description {
+  flex-grow: 1;
+  margin-right: 10px;
+}
+
+.item-duration {
+  color: #666;
+  font-size: 0.9em;
+}
+
+.delete-item {
+  color: red;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0 5px;
+  font-size: 1.2em;
+}
+
+.delete-item:hover {
+  color: darkred;
+}
+
+/* Adjust your existing layout to accommodate the sidebar */
+#schedules-container {
+  margin-left: 0; /* Remove the previous margin */
+}
+
+.image-selector-dialog {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.dialog-content {
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    min-width: 300px;
+}
+
+.image-options {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 10px;
+    margin: 20px 0;
+}
+
+.image-option {
+    padding: 10px;
+    border: 2px solid #ddd;
+    border-radius: 4px;
+    cursor: pointer;
+    text-align: center;
+}
+
+.image-option.selected {
+    border-color: #007bff;
+    background: #f0f7ff;
+}
+
+.image-preview {
+    height: 60px;
+    margin-bottom: 5px;
+    border-radius: 4px;
+}
+
+.dialog-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.dialog-buttons button {
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.save-btn {
+    background: #007bff;
+    color: white;
+    border: none;
+}
+
+.cancel-btn {
+    background: #f0f0f0;
+    border: 1px solid #ddd;
+}
+
+/* Remove these styles as they're no longer needed */
+.inventory-item::before,
+.inventory-item > *,
+.inventory-item.image1::before,
+.inventory-item.image2::before,
+.inventory-item:hover::before {
+    content: none;
+}
+
+/* Update the inventory-item styles */
+.inventory-item {
+    background: white;
+    padding: 10px;
+    border-radius: 5px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    cursor: move;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Remove the ::before pseudo-element styles and update the direct background styles */
+.inventory-item.image1 {
+    background: linear-gradient(rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.7)),
+                url('images/image1.png');
+    background-size: cover;
+    background-position: center;
+}
+
+.inventory-item.image2 {
+    background: linear-gradient(rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.7)),
+                url('images/image2.png');
+    background-size: cover;
+    background-position: center;
+}
+
+.inventory-item:hover {
+    background-color: rgba(240, 240, 240, 0.6);
+}
+
+/* Add these new styles */
+.event-content {
+    overflow: hidden;
+    min-width: 0;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Add these new styles for the description */
+.event-description {
+    font-weight: 600;
+    color: #000000;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 14px;
+    padding-top: 1px;
+    margin: 0;
 }
