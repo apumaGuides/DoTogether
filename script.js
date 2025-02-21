@@ -27,8 +27,28 @@ let currentSelectedEvent = null;
 
 // Constants
 const MAX_SCHEDULES = 5;
-const DAY_HEIGHT = 960; // px for 24 hours
-const RATIO = DAY_HEIGHT / 1440; // 0.6667 px per minute
+const DAY_HEIGHT = 800; // Match the CSS heights
+const RATIO = DAY_HEIGHT / (24 * 60);
+
+// Add these constants near your other constants
+const INVENTORY_TYPES = {
+    CUSTOM: 'custom',
+    RECOMMENDED: 'recommended'
+};
+
+// Add this to your global variables
+let inventoryItems = {
+    custom: [],
+    recommended: []
+};
+
+// Add this constant at the top with your other constants
+const EVENT_IMAGES = {
+    'none': '',
+    'image1': 'image1',
+    'image2': 'image2'
+    // Add more images as needed
+};
 
 // ----------------------
 // UI INITIALIZATION - Function declarations FIRST
@@ -51,33 +71,29 @@ function setupButtons() {
     document.getElementById('rename-calendars').addEventListener('click', renameCalendars);
     document.getElementById('change-background').addEventListener('click', changeBackground);
     document.getElementById('add-schedule').addEventListener('click', addNewSchedule);
-    document.getElementById('save-event').addEventListener('click', addNewEvent);
 }
 
 // Populate the event schedule dropdown with an "All" option and each schedule title
 function updateEventScheduleOptions() {
     const select = document.getElementById('event-schedule');
     select.innerHTML = ""; // Clear existing options
-    const allOpt = document.createElement('option');
-    allOpt.value = "all";
-    allOpt.textContent = "All";
-    select.appendChild(allOpt);
-    schedules.forEach((sch, index) => {
-        const opt = document.createElement('option');
-        opt.value = index;
-        opt.textContent = sch.calendarTitle;
-        select.appendChild(opt);
+    schedules.forEach((_, index) => {
+        const option = document.createElement('option');
+        option.value = index;
+        option.textContent = `Schedule ${index + 1}`;
+        select.appendChild(option);
     });
 }
 
 function generateTimeline() {
-  const timelineEl = document.getElementById('timeline');
-  for (let hour = 0; hour < 24; hour++) {
-    const label = document.createElement('div');
-    label.classList.add('time-label');
-    label.textContent = `${String(hour).padStart(2, '0')}:00`;
-    timelineEl.appendChild(label);
-  }
+    const timeline = document.getElementById('timeline');
+    timeline.innerHTML = '';
+    for (let hour = 0; hour <= 24; hour++) { // Changed from < 24 to <= 24
+        const timeLabel = document.createElement('div');
+        timeLabel.classList.add('time-label');
+        timeLabel.textContent = hour.toString().padStart(2, '0') + ':00';
+        timeline.appendChild(timeLabel);
+    }
 }
 
 function generateTimeSlotLines(containerId) {
@@ -143,6 +159,18 @@ function setupRealtimeListeners() {
     });
 }
 
+// Update your Firestore listener setup
+function setupFirestoreListeners() {
+    // Your existing listener setup code
+    db.collection('events').onSnapshot(snapshot => {
+        snapshot.docChanges().forEach(change => {
+            if (change.type === 'modified') {
+                handleEventUpdate(change.doc);
+            }
+            // ... handle other change types
+        });
+    });
+}
 
 // ----------------------
 // RENDERING SCHEDULES & EVENTS
@@ -254,17 +282,19 @@ function renderEventsForSchedule(scheduleIndex) {
 
         // Add description and comment
         eventEl.innerHTML = `
-            ${event.description}
-            ${event.comment ? `<span class="comment">${event.comment}</span>` : ''}
+            <div class="event-content">
+                <div class="event-description">${event.description}</div>
+                ${event.comment ? `<span class="comment">${event.comment}</span>` : ''}
+            </div>
             <div class="resizer"></div>
         `;
 
         // Add drag event listeners
         eventEl.addEventListener('dragstart', (e) => {
-            const duration = endMin - startMin;
             e.dataTransfer.setData('text/plain', JSON.stringify({
                 id: event.id,
-                duration: duration
+                scheduleIndex: scheduleIndex,
+                duration: endMin - startMin
             }));
         });
 
@@ -562,32 +592,38 @@ function onDrop(e) {
     const dropY = e.clientY - rect.top;
     let newStartMin = Math.round(dropY / RATIO);
     
-    // Add bounds checking
-    if (newStartMin < 0) newStartMin = 0;
-    if (newStartMin > 1440) newStartMin = 1440;
-    
-    const data = JSON.parse(e.dataTransfer.getData("text/plain"));
-    const duration = parseInt(data.duration, 10);
-    
-    // Ensure event doesn't go beyond day boundary
-    if (newStartMin + duration > 1440) {
-        newStartMin = 1440 - duration;
-    }
-    
-    const newStartStr = toHHMM(newStartMin);
-    const newEndStr = toHHMM(newStartMin + duration);
-
-    const eventIndex = schedules[scheduleIndex].events.findIndex(event => event.id === data.id);
-
-    if(eventIndex !== -1) {
-        schedules[scheduleIndex].events[eventIndex] = {
-            ...schedules[scheduleIndex].events[eventIndex],
-            startTime: newStartStr,
-            endTime: newEndStr
+    try {
+        const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+        
+        // If it's an inventory item
+        if (data.type === 'inventory') {
+            const newStartStr = toHHMM(newStartMin);
+            const newEndStr = toHHMM(newStartMin + parseInt(data.duration));
+            
+            const newEvent = {
+                description: data.description,
+                startTime: newStartStr,
+                endTime: newEndStr,
+                done: false,
+                image: data.image || "",
+                comment: "",
+                timestamp: firebase.firestore.FieldValue.serverTimestamp()
+            };
+            
+            addEventToFirestore(newEvent, scheduleIndex);
+        } else if (data.id) {
+            // Handle existing event drag and drop
+            const newStartTime = toHHMM(newStartMin);
+            const newEndTime = toHHMM(newStartMin + data.duration);
+            
+            updateEventInFirestore(data.id, {
+                startTime: newStartTime,
+                endTime: newEndTime,
+                scheduleIndex: scheduleIndex // Allow moving between schedules
+            }, data.scheduleIndex);
         }
-        updateEventInFirestore(data.id, { startTime: newStartStr, endTime: newEndStr }, scheduleIndex);
-    } else {
-        console.error('Event to update not found');
+    } catch (error) {
+        console.error('Error in drop handler:', error);
     }
 }
 
@@ -858,31 +894,52 @@ window.addEventListener('DOMContentLoaded', () => {
   startCurrentTimeLineUpdater();
   addEmptySpaceClickHandlers();
   document.addEventListener('keydown', handleDeleteKey);
+  initializeSidebar();
 });
 
 // Keep the existing resize functions
 function resizeEvent(e) {
-    if (!isResizing) return;
+    if (!isResizing || !currentResizer || !resizingData) return;
+    
     const eventEl = currentResizer.parentElement;
-    let newHeight = initialHeight + (e.clientY - startY);
-    if (newHeight < 20) newHeight = 20; // Minimum height
-    eventEl.style.height = newHeight + "px";
+    const newHeight = initialHeight + (e.clientY - startY);
+    
+    // Ensure minimum height of 20px (or your preferred minimum)
+    if (newHeight >= 20) {
+        eventEl.style.height = `${newHeight}px`;
+    }
 }
 
-function stopResize(e) {
-    if (!isResizing) return;
-
+function stopResize() {
+    if (!isResizing || !currentResizer || !resizingData) return;
+    
     const eventEl = currentResizer.parentElement;
     const newHeight = eventEl.offsetHeight;
-    const newDuration = Math.round(newHeight / RATIO);
-    const newEndMin = resizingData.startMin + newDuration;
-    const newEndTime = toHHMM(newEndMin);
-
-    // Update Firebase
-    updateEventInFirestore(resizingData.id, { endTime: newEndTime }, resizingData.scheduleIndex);
-
+    const newDurationMinutes = Math.round(newHeight / RATIO);
+    const startMin = resizingData.startMin;
+    const newEndMin = startMin + newDurationMinutes;
+    
+    // Update local state first
+    const scheduleIndex = resizingData.scheduleIndex;
+    const eventId = resizingData.id;
+    if (schedules[scheduleIndex]?.events) {
+        const eventIndex = schedules[scheduleIndex].events.findIndex(e => e.id === eventId);
+        if (eventIndex !== -1) {
+            schedules[scheduleIndex].events[eventIndex].endTime = toHHMM(newEndMin);
+        }
+    }
+    
+    // Then update Firestore
+    updateEventInFirestore(resizingData.id, {
+        endTime: toHHMM(newEndMin)
+    }, resizingData.scheduleIndex);
+    
+    // Reset resize state
     isResizing = false;
     currentResizer = null;
+    resizingData = null;
+    
+    // Remove event listeners
     document.removeEventListener('mousemove', resizeEvent);
     document.removeEventListener('mouseup', stopResize);
 }
@@ -893,6 +950,261 @@ function handleDeleteKey(e) {
         if (confirm(`Are you sure you want to delete "${eventObj.description}"?`)) {
             deleteEventFromFirestore(eventObj.id, scheduleIndex);
             currentSelectedEvent = null;
+        }
+    }
+}
+
+// Add this function to initialize the sidebar
+function initializeSidebar() {
+    const sidebar = document.createElement('div');
+    sidebar.id = 'sidebar';
+    sidebar.classList.add('sidebar');
+    
+    // Create Custom Inventory
+    const customInventory = createInventorySection(INVENTORY_TYPES.CUSTOM);
+    
+    // Create Recommended Inventory
+    const recommendedInventory = createInventorySection(INVENTORY_TYPES.RECOMMENDED);
+    
+    sidebar.appendChild(customInventory);
+    sidebar.appendChild(recommendedInventory);
+    
+    // Insert sidebar before the schedules-container
+    const container = document.getElementById('schedules-container');
+    container.parentNode.insertBefore(sidebar, container);
+    
+    // Load inventory items from Firestore
+    loadInventoryItems();
+}
+
+function createInventorySection(type) {
+    const section = document.createElement('div');
+    section.classList.add('inventory-section');
+    
+    const title = document.createElement('h3');
+    title.textContent = type === INVENTORY_TYPES.CUSTOM ? 'Custom Tasks' : 'Recommended Tasks';
+    
+    const itemsContainer = document.createElement('div');
+    itemsContainer.classList.add('inventory-items');
+    itemsContainer.id = `${type}-inventory`;
+    
+    // Add button only for custom inventory
+    if (type === INVENTORY_TYPES.CUSTOM) {
+        const addButton = document.createElement('button');
+        addButton.textContent = '+ Add Task';
+        addButton.onclick = () => addInventoryItem();
+        section.appendChild(addButton);
+    }
+    
+    section.appendChild(title);
+    section.appendChild(itemsContainer);
+    
+    return section;
+}
+
+function addInventoryItem() {
+    const description = prompt('Enter task description:');
+    if (!description) return;
+    
+    const duration = prompt('Enter duration in minutes:', '60');
+    if (!duration || isNaN(duration)) return;
+    
+    const newItem = {
+        id: Date.now().toString(),
+        description,
+        duration: parseInt(duration),
+        type: INVENTORY_TYPES.CUSTOM
+    };
+    
+    // Save to Firestore
+    saveInventoryItem(newItem);
+}
+
+async function saveInventoryItem(item) {
+    try {
+        await db.collection('inventory').doc(item.id).set(item);
+        inventoryItems.custom.push(item);
+        renderInventoryItems();
+    } catch (error) {
+        console.error('Error saving inventory item:', error);
+    }
+}
+
+async function loadInventoryItems() {
+    try {
+        const snapshot = await db.collection('inventory').get();
+        inventoryItems.custom = [];
+        inventoryItems.recommended = [];
+        
+        snapshot.forEach(doc => {
+            const item = doc.data();
+            if (item.type === INVENTORY_TYPES.CUSTOM) {
+                inventoryItems.custom.push(item);
+            } else {
+                inventoryItems.recommended.push(item);
+            }
+        });
+        
+        renderInventoryItems();
+    } catch (error) {
+        console.error('Error loading inventory items:', error);
+    }
+}
+
+function renderInventoryItems() {
+    // Render custom items
+    const customContainer = document.getElementById('custom-inventory');
+    customContainer.innerHTML = '';
+    inventoryItems.custom.forEach(item => {
+        const itemEl = createInventoryItemElement(item);
+        customContainer.appendChild(itemEl);
+    });
+    
+    // Render recommended items
+    const recommendedContainer = document.getElementById('recommended-inventory');
+    recommendedContainer.innerHTML = '';
+    inventoryItems.recommended.forEach(item => {
+        const itemEl = createInventoryItemElement(item);
+        recommendedContainer.appendChild(itemEl);
+    });
+}
+
+function createInventoryItemElement(item) {
+    const itemEl = document.createElement('div');
+    itemEl.classList.add('inventory-item');
+    itemEl.draggable = true;
+    itemEl.dataset.itemId = item.id;
+    
+    // Add image class if it exists
+    if (item.image) {
+        itemEl.classList.add(item.image);
+    }
+    
+    itemEl.innerHTML = `
+        <span class="item-description">${item.description}</span>
+        <span class="item-duration">${item.duration}min</span>
+        ${item.type === INVENTORY_TYPES.CUSTOM ? '<button class="delete-item">×</button>' : ''}
+    `;
+    
+    // Add double-click handler
+    itemEl.addEventListener('dblclick', () => {
+        showImageSelector(item, itemEl);
+    });
+    
+    // Update drag functionality to include image
+    itemEl.addEventListener('dragstart', (e) => {
+        const dragData = {
+            description: item.description,
+            duration: item.duration,
+            type: 'inventory',
+            image: item.image || ''
+        };
+        e.dataTransfer.setData('text/plain', JSON.stringify(dragData));
+    });
+    
+    // Add delete functionality for custom items
+    if (item.type === INVENTORY_TYPES.CUSTOM) {
+        const deleteBtn = itemEl.querySelector('.delete-item');
+        deleteBtn.onclick = async (e) => {
+            e.stopPropagation();
+            if (confirm('Delete this item?')) {
+                await db.collection('inventory').doc(item.id).delete();
+                inventoryItems.custom = inventoryItems.custom.filter(i => i.id !== item.id);
+                renderInventoryItems();
+            }
+        };
+    }
+    
+    return itemEl;
+}
+
+// Add this new function to handle image selection
+function showImageSelector(item, element) {
+    // Create and show the image selector dialog
+    const dialog = document.createElement('div');
+    dialog.classList.add('image-selector-dialog');
+    
+    dialog.innerHTML = `
+        <div class="dialog-content">
+            <h3>Select Background Image</h3>
+            <div class="image-options">
+                ${Object.entries(EVENT_IMAGES).map(([key, value]) => `
+                    <div class="image-option ${value}" data-image="${value}">
+                        <div class="image-preview"></div>
+                        <span>${key}</span>
+                    </div>
+                `).join('')}
+            </div>
+            <div class="dialog-buttons">
+                <button class="cancel-btn">Cancel</button>
+                <button class="save-btn">Save</button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(dialog);
+    
+    // Handle image selection
+    const imageOptions = dialog.querySelectorAll('.image-option');
+    let selectedImage = item.image || '';
+    
+    imageOptions.forEach(option => {
+        if (option.dataset.image === selectedImage) {
+            option.classList.add('selected');
+        }
+        
+        option.addEventListener('click', () => {
+            imageOptions.forEach(opt => opt.classList.remove('selected'));
+            option.classList.add('selected');
+            selectedImage = option.dataset.image;
+        });
+    });
+    
+    // Handle dialog buttons
+    dialog.querySelector('.cancel-btn').addEventListener('click', () => {
+        document.body.removeChild(dialog);
+    });
+    
+    dialog.querySelector('.save-btn').addEventListener('click', async () => {
+        // Update the item's image
+        if (item.type === INVENTORY_TYPES.CUSTOM) {
+            // Update inventory item
+            item.image = selectedImage;
+            await db.collection('inventory').doc(item.id).update({ image: selectedImage });
+            
+            // Update visual appearance
+            element.className = 'inventory-item';
+            if (selectedImage) {
+                element.classList.add(selectedImage);
+            }
+        } else {
+            // Update calendar event
+            await updateEventInFirestore(item.id, { image: selectedImage }, item.scheduleIndex);
+        }
+        
+        document.body.removeChild(dialog);
+    });
+}
+
+// Add this function to handle event updates from Firestore
+function handleEventUpdate(doc) {
+    const data = doc.data();
+    const scheduleIndex = data.scheduleIndex;
+    const eventId = doc.id;
+    
+    // Find and update the event in our local schedules array
+    if (schedules[scheduleIndex]?.events) {
+        const eventIndex = schedules[scheduleIndex].events.findIndex(e => e.id === eventId);
+        if (eventIndex !== -1) {
+            // Preserve the height/duration if this event is currently being resized
+            if (isResizing && resizingData && resizingData.id === eventId) {
+                return; // Skip updating this event while it's being resized
+            }
+            schedules[scheduleIndex].events[eventIndex] = {
+                ...schedules[scheduleIndex].events[eventIndex],
+                ...data
+            };
+            renderEventsForSchedule(scheduleIndex);
         }
     }
 }
